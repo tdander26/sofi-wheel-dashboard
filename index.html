@@ -186,6 +186,13 @@
     border-bottom: 1px dashed var(--border);
   }
   .stat-value input:focus { outline: none; border-bottom-color: var(--accent); }
+  .basis-reset-btn {
+    margin-left: 6px; padding: 1px 6px; font-size: 10px;
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-faint); border-radius: 3px; font-weight: 500;
+    text-transform: none; letter-spacing: 0;
+  }
+  .basis-reset-btn:hover { background: var(--surface-2); color: var(--text); }
 
   /* Premium breakdown */
   .premium-grid {
@@ -430,9 +437,12 @@
       <div class="stat-sub" id="stat-shares-sub">No assignments yet</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Avg Cost Basis</div>
-      <div class="stat-value" id="stat-basis">$0.00</div>
-      <div class="stat-sub" id="stat-basis-sub">Premium-adjusted</div>
+      <div class="stat-label">
+        Avg Cost Basis
+        <button id="basis-reset" class="ghost basis-reset-btn hidden" title="Clear override and use computed FIFO basis">↺ FIFO</button>
+      </div>
+      <div class="stat-value">$<input id="basis-input" type="number" step="0.01" min="0" placeholder="0.00"></div>
+      <div class="stat-sub" id="stat-basis-sub">FIFO computed</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Break-Even Price</div>
@@ -611,6 +621,7 @@
   const SAMPLE_DATA = {
     ticker: 'SOFI',
     currentPrice: 14.75,
+    basisOverride: 18.60,
     isSample: true,
     trades: [
       { id:"s1", date:"2021-10-27", type:"share_buy", strike:19.54, expiration:"", premium:0.0, contracts:1.023803, status:"closed", closeCost:null, notes:"" },
@@ -798,6 +809,7 @@
     if (!s.dateRange) s.dateRange = 'all';
     if (!s.customFrom) s.customFrom = '';
     if (!s.customTo)   s.customTo = '';
+    if (s.basisOverride === undefined) s.basisOverride = null;
     return s;
   }
   function saveState() {
@@ -929,8 +941,15 @@
     }
 
     const sharesHeld = lots.reduce((s, l) => s + l.shares, 0);
-    const basisCost  = lots.reduce((s, l) => s + l.shares * l.costPerShare, 0);
-    const avgBasis   = sharesHeld > 0 ? basisCost / sharesHeld : 0;
+    const basisCostFifo = lots.reduce((s, l) => s + l.shares * l.costPerShare, 0);
+    const avgBasisFifo  = sharesHeld > 0 ? basisCostFifo / sharesHeld : 0;
+    // Effective basis: user override (e.g. matching Robinhood's IRS-adjusted +
+    // wash-sale-adjusted basis) takes priority; otherwise use our FIFO walk.
+    const overrideBasis = (typeof state.basisOverride === 'number' && !isNaN(state.basisOverride))
+      ? state.basisOverride : null;
+    const isOverridden = overrideBasis !== null;
+    const avgBasis = isOverridden ? overrideBasis : avgBasisFifo;
+    const basisCost = sharesHeld * avgBasis;
     const currentValue = sharesHeld * (state.currentPrice || 0);
     const unrealizedVsBasis = sharesHeld > 0 ? currentValue - basisCost : 0;
     // Premium-adjusted basis = avg basis minus per-share premium attribution
@@ -948,7 +967,8 @@
 
     return {
       // Current snapshot — never filtered by range
-      sharesHeld, basisCost, avgBasis, adjBasis, currentValue, unrealizedVsBasis,
+      sharesHeld, basisCost, avgBasis, avgBasisFifo, isOverridden,
+      adjBasis, currentValue, unrealizedVsBasis,
       // All-time tallies — also unfiltered
       totalPremium, putsPremium, callsPremium,
       timesAssigned, expiredCount, closedCount, assignedCount,
@@ -1053,10 +1073,16 @@
     document.getElementById('stat-shares-sub').textContent =
       c.sharesHeld > 0 ? `Current value ${fmtMoney(c.currentValue)}` : 'No shares held';
 
-    document.getElementById('stat-basis').textContent =
-      c.sharesHeld > 0 ? fmtMoney(c.avgBasis) : '—';
-    document.getElementById('stat-basis-sub').textContent =
-      c.sharesHeld > 0 ? `FIFO across ${fmtNum(c.sharesHeld)} shares` : 'FIFO cost basis';
+    const basisInput = document.getElementById('basis-input');
+    if (document.activeElement !== basisInput) {
+      basisInput.value = c.sharesHeld > 0 ? c.avgBasis.toFixed(2) : '';
+    }
+    document.getElementById('basis-reset').classList.toggle('hidden', !c.isOverridden);
+    document.getElementById('stat-basis-sub').textContent = c.sharesHeld === 0
+      ? 'FIFO cost basis'
+      : c.isOverridden
+        ? `Manual override · FIFO would be ${fmtMoney(c.avgBasisFifo)}`
+        : `FIFO across ${fmtNum(c.sharesHeld)} shares — click to override`;
 
     document.getElementById('stat-breakeven').textContent =
       c.sharesHeld > 0 ? fmtMoney(c.adjBasis) : '—';
@@ -1375,6 +1401,23 @@
   document.getElementById('current-price').addEventListener('input', e => {
     const v = parseFloat(e.target.value);
     state.currentPrice = isNaN(v) ? 0 : v;
+    saveState();
+    render();
+  });
+
+  // -------- Cost basis override --------
+  // Robinhood's reported basis can differ from our FIFO walk because brokers
+  // adjust basis for received put premiums (IRS rule: assigned put basis =
+  // strike − premium) and roll wash-sale disallowed losses into subsequent
+  // lots. Rather than model both, just let the user paste the broker number.
+  document.getElementById('basis-input').addEventListener('input', e => {
+    const v = parseFloat(e.target.value);
+    state.basisOverride = isNaN(v) ? null : v;
+    saveState();
+    render();
+  });
+  document.getElementById('basis-reset').addEventListener('click', () => {
+    state.basisOverride = null;
     saveState();
     render();
   });
