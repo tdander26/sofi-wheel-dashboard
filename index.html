@@ -197,7 +197,7 @@
   /* Premium breakdown */
   .premium-grid {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 14px;
   }
   .premium-cell .stat-label { margin-bottom: 4px; }
@@ -332,6 +332,10 @@
     font-size: 11px; color: var(--text-faint); margin-top: 3px;
     line-height: 1.3; white-space: nowrap;
   }
+  .roi-meta {
+    font-size: 11px; color: var(--text-faint); margin-top: 2px;
+    line-height: 1.2; white-space: nowrap;
+  }
   .status-open    { background: rgba(96,165,250,0.15); color: var(--blue); }
   .status-expired { background: var(--green-dim); color: var(--green); }
   .status-assigned{ background: var(--accent-dim); color: var(--accent); }
@@ -385,7 +389,7 @@
     .hero-value { font-size: 36px; }
     .hero-detail { gap: 14px; font-size: 13px; }
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
-    .premium-grid { grid-template-columns: repeat(2, 1fr); }
+    .premium-grid { grid-template-columns: repeat(2, 1fr) !important; }
     .charts-grid { grid-template-columns: 1fr; }
     form.trade-form { grid-template-columns: 1fr 1fr; }
     form.trade-form .half { grid-column: span 1; }
@@ -506,6 +510,21 @@
       <div class="premium-cell">
         <div class="stat-label">Times Assigned</div>
         <div class="stat-value" id="pm-assigned">0</div>
+      </div>
+      <div class="premium-cell">
+        <div class="stat-label" title="Premium received / total capital tied up on cash-secured puts">Put ROI</div>
+        <div class="stat-value" id="pm-roi">—</div>
+        <div class="stat-sub" id="pm-roi-sub">on put collateral</div>
+      </div>
+      <div class="premium-cell">
+        <div class="stat-label" title="Time-weighted return: each put's premium / capital × days, then annualized">Annualized</div>
+        <div class="stat-value" id="pm-roi-annual">—</div>
+        <div class="stat-sub">put capital efficiency</div>
+      </div>
+      <div class="premium-cell">
+        <div class="stat-label">Capital at Risk</div>
+        <div class="stat-value" id="pm-capital">$0</div>
+        <div class="stat-sub" id="pm-capital-sub">on open puts</div>
       </div>
     </div>
   </section>
@@ -897,6 +916,23 @@
     let optionTradeCount = 0;
     let rangeTotalPremium = 0, rangePutsPremium = 0, rangeCallsPremium = 0;
     let rangeAssigned = 0, rangeExpired = 0, rangeClosed = 0, rangeOptionCount = 0;
+
+    // Capital deployed on cash-secured puts: strike × 100 × contracts. Used to
+    // compute ROI (premium / capital) and time-weighted annualized ROI. Calls
+    // and shares don't require additional collateral so they're excluded —
+    // their premium just stacks on top of the share P&L.
+    let putCapitalTotal = 0;      // total capital ever tied up on puts (sum)
+    let putCapitalTimeTotal = 0;  // sum of (capital × days) for annualized ROI
+    let putCapitalOpenNow = 0;    // capital currently locked on open puts
+    let rangePutCapital = 0;
+    let rangePutCapitalTime = 0;
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const dayDiff = (open, close) => {
+      const o = new Date((open || todayISO) + 'T00:00:00').getTime();
+      const c = new Date((close || todayISO) + 'T00:00:00').getTime();
+      return Math.max(1, Math.round((c - o) / 86400000));
+    };
+
     for (const t of allTrades) {
       if (t.type === 'put' || t.type === 'call') {
         const inR = range.from || range.to ? inRange(t.date) : true;
@@ -919,6 +955,19 @@
           if (t.status === 'assigned')     rangeAssigned++;
           else if (t.status === 'expired') rangeExpired++;
           else if (t.status === 'closed')  rangeClosed++;
+        }
+
+        if (t.type === 'put') {
+          const capital = (t.strike || 0) * optShares;
+          const closeFor = t.status === 'open' ? todayISO : (t.closeDate || t.expiration || t.date);
+          const days = dayDiff(t.date, closeFor);
+          putCapitalTotal += capital;
+          putCapitalTimeTotal += capital * days;
+          if (t.status === 'open') putCapitalOpenNow += capital;
+          if (inR) {
+            rangePutCapital += capital;
+            rangePutCapitalTime += capital * days;
+          }
         }
       }
     }
@@ -1006,6 +1055,17 @@
     const rangeWinRate = rangeClosedTrades > 0 ? rangeExpired / rangeClosedTrades : null;
     const rangeAvgPremium = rangeOptionCount > 0 ? rangeTotalPremium / rangeOptionCount : 0;
 
+    // Put ROI — return on the capital you had to hold as collateral for
+    // cash-secured puts. putROI is the blended % return across all puts.
+    // putROIAnnualized accounts for how long each put tied up that capital,
+    // so a 1% put held 14 days annualizes much higher than a 1% put held 60.
+    const putROI = putCapitalTotal > 0 ? putsPremium / putCapitalTotal : 0;
+    const putROIAnnualized = putCapitalTimeTotal > 0
+      ? (putsPremium / putCapitalTimeTotal) * 365 : 0;
+    const rangePutROI = rangePutCapital > 0 ? rangePutsPremium / rangePutCapital : 0;
+    const rangePutROIAnnualized = rangePutCapitalTime > 0
+      ? (rangePutsPremium / rangePutCapitalTime) * 365 : 0;
+
     return {
       // Current snapshot — never filtered by range
       sharesHeld, basisCost, avgBasis, avgBasisFifo, isOverridden,
@@ -1015,11 +1075,14 @@
       timesAssigned, expiredCount, closedCount, assignedCount,
       winRate, avgPremium, netPosition,
       tradeCount: allTrades.length, optionTradeCount,
+      // Capital deployed + ROI on puts
+      putCapitalTotal, putCapitalOpenNow, putROI, putROIAnnualized,
       // Range-filtered tallies
       range,
       rangeTotalPremium, rangePutsPremium, rangeCallsPremium,
       rangeAssigned, rangeExpired, rangeClosed, rangeOptionCount,
       rangeWinRate, rangeAvgPremium,
+      rangePutCapital, rangePutROI, rangePutROIAnnualized,
     };
   }
 
@@ -1151,6 +1214,19 @@
     document.getElementById('pm-avg').textContent = useCount > 0 ? fmtMoney(useAvg) : '—';
     document.getElementById('pm-winrate').textContent = useWin !== null ? fmtPct(useWin) : '—';
     document.getElementById('pm-assigned').textContent = fmtNum(useAssigned);
+
+    // Put ROI / Annualized / Capital deployed
+    const useROI       = isAll ? c.putROI           : c.rangePutROI;
+    const useROIAnn    = isAll ? c.putROIAnnualized : c.rangePutROIAnnualized;
+    const useCapTotal  = isAll ? c.putCapitalTotal  : c.rangePutCapital;
+    document.getElementById('pm-roi').textContent = useCapTotal > 0 ? fmtPct(useROI) : '—';
+    document.getElementById('pm-roi-sub').textContent = useCapTotal > 0
+      ? `${fmtMoney(isAll ? c.putsPremium : c.rangePutsPremium)} / ${fmtMoney(useCapTotal)} deployed`
+      : 'on put collateral';
+    document.getElementById('pm-roi-annual').textContent = useCapTotal > 0 ? fmtPct(useROIAnn) : '—';
+    document.getElementById('pm-capital').textContent = fmtMoney(c.putCapitalOpenNow);
+    document.getElementById('pm-capital-sub').textContent =
+      c.putCapitalOpenNow > 0 ? `secured by ${fmtNum(c.putCapitalOpenNow / 100)} sh equivalent` : 'no open puts';
     const pmHeader = document.querySelector('.premium-card-header');
     if (pmHeader) pmHeader.textContent = isAll ? 'Premium & Performance' : `Premium & Performance — ${c.range.label}`;
 
@@ -1207,7 +1283,21 @@
         const grossPrem = (t.premium || 0) * shares;
         const buyback = (t.closeCost || 0) * shares;
         const pl = grossPrem - buyback;
-        plDisplay = `<span class="pos">${fmtMoney(pl, { sign: true })}</span>`;
+        let extra = '';
+        if (t.type === 'put') {
+          // ROI on collateral for the put. Capital = strike × shares.
+          const capital = (t.strike || 0) * shares;
+          if (capital > 0) {
+            const roiPct = (pl / capital) * 100;
+            const openD = new Date((t.date || today) + 'T00:00:00').getTime();
+            const closeISO = t.status === 'open' ? today : (t.closeDate || t.expiration || t.date);
+            const closeD = new Date((closeISO || today) + 'T00:00:00').getTime();
+            const days = Math.max(1, Math.round((closeD - openD) / 86400000));
+            const annual = (roiPct * 365) / days;
+            extra = `<div class="roi-meta">${roiPct.toFixed(1)}% · ${days}d · ${annual.toFixed(0)}% yr</div>`;
+          }
+        }
+        plDisplay = `<span class="pos">${fmtMoney(pl, { sign: true })}</span>${extra}`;
       }
       const quickActions = isOpen
         ? `<button class="btn-expire" data-expire="${t.id}" title="Mark as expired worthless">Expire</button>
