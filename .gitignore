@@ -2,3 +2,10 @@
 *.swp
 .vscode/
 .idea/
+
+# Raw broker exports — kept locally, not committed
+sofi_transaction_history.csv
+SoFi Technologies History | Robinhood.pdf
+_*.py
+_*.json
+_*.snippet

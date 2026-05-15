@@ -259,6 +259,8 @@
   .status-closed  { background: rgba(156,163,175,0.15); color: var(--text-dim); }
   .type-put  { color: var(--blue); font-weight: 600; }
   .type-call { color: var(--accent); font-weight: 600; }
+  .type-share_buy  { color: var(--green); font-weight: 600; font-size: 11px; }
+  .type-share_sell { color: var(--red);   font-weight: 600; font-size: 11px; }
   .row-actions { display: flex; gap: 4px; }
 
   /* Toolbar */
@@ -433,10 +435,12 @@
         <select id="f-type" required>
           <option value="put">Put (cash-secured)</option>
           <option value="call">Call (covered)</option>
+          <option value="share_buy">Share buy (outright)</option>
+          <option value="share_sell">Share sell (outright)</option>
         </select>
       </div>
       <div>
-        <label>Strike</label>
+        <label id="f-strike-label">Strike</label>
         <input type="number" step="0.01" id="f-strike" required placeholder="12.00">
       </div>
       <div>
@@ -448,8 +452,8 @@
         <input type="number" step="0.01" id="f-premium" required placeholder="0.45">
       </div>
       <div>
-        <label>Contracts</label>
-        <input type="number" min="1" id="f-contracts" required value="1">
+        <label id="f-contracts-label">Contracts</label>
+        <input type="number" step="0.01" min="0" id="f-contracts" required value="1">
       </div>
       <div>
         <label>Status</label>
@@ -533,15 +537,172 @@
   // -------- Sample data --------
   const SAMPLE_DATA = {
     ticker: 'SOFI',
-    currentPrice: 11.20,
+    currentPrice: 15.50,
     isSample: true,
     trades: [
-      { id: 's1', date: '2025-11-15', type: 'put',  strike: 9.00,  expiration: '2025-12-19', premium: 0.38, contracts: 2, status: 'expired',  closeCost: null, notes: 'Sold OTM put while waiting for a dip' },
-      { id: 's2', date: '2025-12-22', type: 'put',  strike: 10.00, expiration: '2026-01-16', premium: 0.55, contracts: 2, status: 'expired',  closeCost: null, notes: '' },
-      { id: 's3', date: '2026-01-20', type: 'put',  strike: 12.00, expiration: '2026-02-20', premium: 0.62, contracts: 2, status: 'assigned', closeCost: null, notes: 'Assigned at $12, 200 shares' },
-      { id: 's4', date: '2026-02-24', type: 'call', strike: 13.00, expiration: '2026-03-20', premium: 0.45, contracts: 2, status: 'expired',  closeCost: null, notes: 'CC against assigned shares' },
-      { id: 's5', date: '2026-03-23', type: 'call', strike: 13.00, expiration: '2026-04-17', premium: 0.51, contracts: 2, status: 'expired',  closeCost: null, notes: '' },
-      { id: 's6', date: '2026-04-21', type: 'call', strike: 14.00, expiration: '2026-05-15', premium: 0.48, contracts: 2, status: 'open',     closeCost: null, notes: 'Currently open' }
+      { id:"s1", date:"2021-10-27", type:"share_buy", strike:19.54, expiration:"", premium:0.0, contracts:1.023803, status:"closed", closeCost:null, notes:"" },
+      { id:"s2", date:"2021-11-02", type:"share_sell", strike:22.49, expiration:"", premium:0.0, contracts:0.5, status:"closed", closeCost:null, notes:"" },
+      { id:"s3", date:"2021-11-09", type:"share_buy", strike:23.21, expiration:"", premium:0.0, contracts:2.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s4", date:"2021-11-22", type:"share_sell", strike:18.75, expiration:"", premium:0.0, contracts:5.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s5", date:"2021-11-22", type:"share_buy", strike:18.99, expiration:"", premium:0.0, contracts:2.5, status:"closed", closeCost:null, notes:"" },
+      { id:"s6", date:"2021-12-07", type:"share_buy", strike:16.33, expiration:"", premium:0.0, contracts:3.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s7", date:"2021-12-28", type:"share_buy", strike:15.1, expiration:"", premium:0.0, contracts:2.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s8", date:"2022-01-05", type:"share_sell", strike:14.19, expiration:"", premium:0.0, contracts:3.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s9", date:"2022-01-13", type:"share_sell", strike:13.09, expiration:"", premium:0.0, contracts:4.023803, status:"closed", closeCost:null, notes:"" },
+      { id:"s10", date:"2022-01-13", type:"share_buy", strike:13.42, expiration:"", premium:0.0, contracts:2.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s11", date:"2023-12-28", type:"share_buy", strike:10.26, expiration:"", premium:0.0, contracts:1000.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s12", date:"2024-01-18", type:"share_sell", strike:7.3, expiration:"", premium:0.0, contracts:500.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s13", date:"2024-01-22", type:"share_buy", strike:8.08, expiration:"", premium:0.0, contracts:100.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s14", date:"2024-02-05", type:"share_buy", strike:7.78, expiration:"", premium:0.0, contracts:300.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s15", date:"2024-02-06", type:"share_buy", strike:7.78, expiration:"", premium:0.0, contracts:500.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s16", date:"2024-03-06", type:"share_buy", strike:7.39, expiration:"", premium:0.0, contracts:1000.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s17", date:"2024-03-15", type:"share_buy", strike:7.0, expiration:"", premium:0.0, contracts:1000.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s18", date:"2024-04-26", type:"call", strike:8.0, expiration:"2024-04-26", premium:0.0, contracts:3, status:"assigned", closeCost:null, notes:"Imported assignment (no matching sell)" },
+      { id:"s19", date:"2024-04-27", type:"share_sell", strike:7.34, expiration:"", premium:0.0, contracts:1000.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s20", date:"2024-04-29", type:"share_buy", strike:7.1, expiration:"", premium:0.0, contracts:1000.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s21", date:"2024-05-01", type:"share_buy", strike:6.72, expiration:"", premium:0.0, contracts:1000.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s22", date:"2024-05-14", type:"share_sell", strike:7.48, expiration:"", premium:0.0, contracts:1000.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s23", date:"2024-05-15", type:"share_sell", strike:7.39, expiration:"", premium:0.0, contracts:500.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s24", date:"2024-05-24", type:"put", strike:7.0, expiration:"2024-05-24", premium:0.0, contracts:10, status:"assigned", closeCost:null, notes:"Imported assignment (no matching sell)" },
+      { id:"s25", date:"2024-06-04", type:"share_sell", strike:7.25, expiration:"", premium:0.0, contracts:1000.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s26", date:"2024-06-12", type:"share_sell", strike:7.26, expiration:"", premium:0.0, contracts:500.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s27", date:"2024-06-12", type:"share_sell", strike:7.26, expiration:"", premium:0.0, contracts:600.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s28", date:"2024-07-15", type:"share_sell", strike:7.27, expiration:"", premium:0.0, contracts:500.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s29", date:"2024-07-15", type:"share_sell", strike:7.29, expiration:"", premium:0.0, contracts:500.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s30", date:"2024-07-15", type:"share_sell", strike:7.3, expiration:"", premium:0.0, contracts:500.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s31", date:"2024-09-10", type:"call", strike:7.0, expiration:"2025-01-16", premium:2.5, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s32", date:"2024-10-28", type:"call", strike:13.0, expiration:"2024-11-01", premium:0.18, contracts:5, status:"expired", closeCost:null, notes:"" },
+      { id:"s33", date:"2024-11-26", type:"put", strike:14.0, expiration:"2024-12-20", premium:0.3, contracts:10, status:"expired", closeCost:null, notes:"" },
+      { id:"s34", date:"2024-12-31", type:"call", strike:7.0, expiration:"2025-01-16", premium:9.35, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s35", date:"2024-12-31", type:"call", strike:7.0, expiration:"2025-01-16", premium:9.3, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s36", date:"2025-01-02", type:"call", strike:7.0, expiration:"2025-01-16", premium:7.95, contracts:6, status:"expired", closeCost:null, notes:"" },
+      { id:"s37", date:"2025-01-03", type:"put", strike:13.0, expiration:"2025-01-17", premium:0.2, contracts:3, status:"expired", closeCost:null, notes:"" },
+      { id:"s38", date:"2025-01-27", type:"put", strike:13.0, expiration:"2025-03-21", premium:0.32, contracts:4, status:"expired", closeCost:null, notes:"" },
+      { id:"s39", date:"2025-01-31", type:"put", strike:15.5, expiration:"2025-02-07", premium:0.41, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s40", date:"2025-01-31", type:"put", strike:15.5, expiration:"2025-02-07", premium:0.25, contracts:4, status:"expired", closeCost:null, notes:"" },
+      { id:"s41", date:"2025-01-31", type:"put", strike:15.5, expiration:"2025-02-07", premium:0.17, contracts:4, status:"expired", closeCost:null, notes:"" },
+      { id:"s42", date:"2025-02-12", type:"call", strike:10.0, expiration:"2026-01-16", premium:5.9, contracts:6, status:"expired", closeCost:null, notes:"" },
+      { id:"s43", date:"2025-02-18", type:"call", strike:18.0, expiration:"2025-02-28", premium:0.23, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s44", date:"2025-02-18", type:"share_buy", strike:16.83, expiration:"", premium:0.0, contracts:200.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s45", date:"2025-02-19", type:"put", strike:15.5, expiration:"2025-02-28", premium:0.19, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s46", date:"2025-02-19", type:"put", strike:15.5, expiration:"2025-02-28", premium:0.19, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s47", date:"2025-02-28", type:"call", strike:14.5, expiration:"2025-03-07", premium:0.45, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s48", date:"2025-03-03", type:"call", strike:16.5, expiration:"2025-03-14", premium:0.17, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s49", date:"2025-03-20", type:"call", strike:13.5, expiration:"2025-03-28", premium:0.17, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s50", date:"2025-03-31", type:"share_sell", strike:11.16, expiration:"", premium:0.0, contracts:200.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s51", date:"2025-04-01", type:"call", strike:12.0, expiration:"2025-04-04", premium:0.24, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s52", date:"2025-04-03", type:"put", strike:11.0, expiration:"2025-04-04", premium:0.21, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s53", date:"2025-04-04", type:"share_sell", strike:9.94, expiration:"", premium:0.0, contracts:200.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s54", date:"2025-05-21", type:"put", strike:12.5, expiration:"2025-05-23", premium:0.13, contracts:5, status:"expired", closeCost:null, notes:"" },
+      { id:"s55", date:"2025-05-30", type:"put", strike:12.5, expiration:"2025-06-06", premium:0.12, contracts:4, status:"expired", closeCost:null, notes:"" },
+      { id:"s56", date:"2025-06-02", type:"call", strike:14.0, expiration:"2025-06-06", premium:0.1275, contracts:4, status:"assigned", closeCost:null, notes:"" },
+      { id:"s57", date:"2025-06-02", type:"share_buy", strike:13.54, expiration:"", premium:0.0, contracts:400.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s58", date:"2025-06-09", type:"call", strike:14.5, expiration:"2025-06-13", premium:0.19, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s59", date:"2025-06-09", type:"share_buy", strike:14.08, expiration:"", premium:0.0, contracts:200.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s60", date:"2025-06-17", type:"share_buy", strike:14.43, expiration:"", premium:0.0, contracts:200.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s61", date:"2025-06-18", type:"put", strike:14.0, expiration:"2025-06-27", premium:0.15, contracts:4, status:"expired", closeCost:null, notes:"" },
+      { id:"s62", date:"2025-06-18", type:"call", strike:16.0, expiration:"2025-06-27", premium:0.21, contracts:2, status:"assigned", closeCost:null, notes:"" },
+      { id:"s63", date:"2025-06-18", type:"call", strike:15.0, expiration:"2025-06-20", premium:0.16, contracts:2, status:"assigned", closeCost:null, notes:"" },
+      { id:"s64", date:"2025-06-23", type:"share_buy", strike:15.41, expiration:"", premium:0.0, contracts:400.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s65", date:"2025-07-07", type:"call", strike:20.0, expiration:"2025-07-11", premium:0.28, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s66", date:"2025-07-07", type:"call", strike:19.0, expiration:"2025-07-11", premium:0.35, contracts:2, status:"assigned", closeCost:null, notes:"" },
+      { id:"s67", date:"2025-07-08", type:"call", strike:21.0, expiration:"2025-07-11", premium:0.39, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s68", date:"2025-07-14", type:"put", strike:20.0, expiration:"2025-07-18", premium:0.22, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s69", date:"2025-07-25", type:"put", strike:20.0, expiration:"2025-08-01", premium:0.53, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s70", date:"2025-07-28", type:"put", strike:19.0, expiration:"2025-08-01", premium:0.25, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s71", date:"2025-07-30", type:"put", strike:20.0, expiration:"2025-08-01", premium:0.2, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s72", date:"2025-07-30", type:"put", strike:20.0, expiration:"2025-08-01", premium:0.21, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s73", date:"2025-08-04", type:"put", strike:20.5, expiration:"2025-08-08", premium:0.29, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s74", date:"2025-08-04", type:"put", strike:20.5, expiration:"2025-08-08", premium:0.31, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s75", date:"2025-08-05", type:"put", strike:21.0, expiration:"2025-08-08", premium:0.27, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s76", date:"2025-08-06", type:"put", strike:21.0, expiration:"2025-08-08", premium:0.34, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s77", date:"2025-08-22", type:"call", strike:26.5, expiration:"2025-08-29", premium:0.3, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s78", date:"2025-08-22", type:"share_buy", strike:24.96, expiration:"", premium:0.0, contracts:100.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s79", date:"2025-08-28", type:"call", strike:25.5, expiration:"2025-08-29", premium:0.39, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s80", date:"2025-08-28", type:"share_buy", strike:25.43, expiration:"", premium:0.0, contracts:100.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s81", date:"2025-09-03", type:"put", strike:20.0, expiration:"2025-12-19", premium:1.22, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s82", date:"2025-09-03", type:"call", strike:25.5, expiration:"2025-09-05", premium:0.25, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s83", date:"2025-09-04", type:"call", strike:25.5, expiration:"2025-09-05", premium:0.41, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s84", date:"2025-09-04", type:"call", strike:25.0, expiration:"2025-09-05", premium:0.28, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s85", date:"2025-09-04", type:"share_buy", strike:25.49, expiration:"", premium:0.0, contracts:100.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s86", date:"2025-09-04", type:"share_buy", strike:24.72, expiration:"", premium:0.0, contracts:100.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s87", date:"2025-09-08", type:"put", strike:24.0, expiration:"2025-09-12", premium:0.38, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s88", date:"2025-09-08", type:"put", strike:24.0, expiration:"2025-09-12", premium:0.25, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s89", date:"2025-09-16", type:"call", strike:20.0, expiration:"2025-09-18", premium:10.45, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s90", date:"2025-09-24", type:"put", strike:27.0, expiration:"2025-10-03", premium:0.38, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s91", date:"2025-09-25", type:"put", strike:24.0, expiration:"2025-10-17", premium:0.47, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s92", date:"2025-09-26", type:"put", strike:26.5, expiration:"2025-10-03", premium:0.29, contracts:2, status:"assigned", closeCost:null, notes:"" },
+      { id:"s93", date:"2025-09-29", type:"put", strike:26.5, expiration:"2025-10-03", premium:0.39, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s94", date:"2025-10-03", type:"call", strike:26.5, expiration:"2025-10-10", premium:0.36, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s95", date:"2025-10-03", type:"put", strike:23.0, expiration:"2026-06-18", premium:4.05, contracts:1, status:"open", closeCost:null, notes:"" },
+      { id:"s96", date:"2025-10-03", type:"put", strike:23.0, expiration:"2026-06-18", premium:3.95, contracts:2, status:"open", closeCost:null, notes:"" },
+      { id:"s97", date:"2025-10-06", type:"put", strike:25.0, expiration:"2025-11-21", premium:2.03, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s98", date:"2025-10-06", type:"put", strike:26.0, expiration:"2025-12-19", premium:2.74, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s99", date:"2025-10-06", type:"call", strike:27.0, expiration:"2025-10-10", premium:0.28, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s100", date:"2025-10-06", type:"call", strike:27.0, expiration:"2025-10-10", premium:0.31, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s101", date:"2025-10-07", type:"call", strike:29.5, expiration:"2025-10-10", premium:0.32, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s102", date:"2025-10-13", type:"call", strike:28.5, expiration:"2025-10-17", premium:0.35, contracts:3, status:"expired", closeCost:null, notes:"" },
+      { id:"s103", date:"2025-10-14", type:"call", strike:28.5, expiration:"2025-10-17", premium:0.32, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s104", date:"2025-10-20", type:"call", strike:29.5, expiration:"2025-10-24", premium:0.39, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s105", date:"2025-10-20", type:"call", strike:29.5, expiration:"2025-10-24", premium:0.3, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s106", date:"2025-10-22", type:"put", strike:25.0, expiration:"2025-10-24", premium:0.3, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s107", date:"2025-10-24", type:"call", strike:30.5, expiration:"2025-10-31", premium:1.38, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s108", date:"2025-10-27", type:"call", strike:35.0, expiration:"2025-10-31", premium:0.39, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s109", date:"2025-10-28", type:"put", strike:27.0, expiration:"2025-11-07", premium:0.5, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s110", date:"2025-10-28", type:"call", strike:20.0, expiration:"2027-01-15", premium:13.5, contracts:1, status:"open", closeCost:null, notes:"" },
+      { id:"s111", date:"2025-10-28", type:"call", strike:30.5, expiration:"2025-10-31", premium:0.87, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s112", date:"2025-10-28", type:"call", strike:32.5, expiration:"2025-10-31", premium:0.39, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s113", date:"2025-10-28", type:"share_sell", strike:29.21, expiration:"", premium:0.0, contracts:200.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s114", date:"2025-10-28", type:"share_sell", strike:29.28, expiration:"", premium:0.0, contracts:100.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s115", date:"2025-10-30", type:"put", strike:27.0, expiration:"2025-11-07", premium:0.29, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s116", date:"2025-11-11", type:"call", strike:31.5, expiration:"2025-11-14", premium:0.35, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s117", date:"2025-11-13", type:"put", strike:25.0, expiration:"2025-11-21", premium:0.31, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s118", date:"2025-11-13", type:"put", strike:29.0, expiration:"2025-11-21", premium:0.63, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s119", date:"2025-11-14", type:"call", strike:27.0, expiration:"2025-11-14", premium:0.0, contracts:1, status:"assigned", closeCost:null, notes:"Imported assignment (no matching sell)" },
+      { id:"s120", date:"2025-11-18", type:"put", strike:25.0, expiration:"2025-11-21", premium:0.26, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s121", date:"2025-11-25", type:"put", strike:20.0, expiration:"2026-03-20", premium:1.3, contracts:3, status:"expired", closeCost:null, notes:"" },
+      { id:"s122", date:"2025-11-25", type:"put", strike:20.0, expiration:"2026-03-20", premium:1.28, contracts:3, status:"expired", closeCost:null, notes:"" },
+      { id:"s123", date:"2025-11-25", type:"call", strike:29.0, expiration:"2025-11-28", premium:0.115, contracts:2, status:"assigned", closeCost:null, notes:"" },
+      { id:"s124", date:"2025-12-03", type:"put", strike:28.0, expiration:"2025-12-05", premium:0.17, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s125", date:"2025-12-04", type:"share_buy", strike:29.3, expiration:"", premium:0.0, contracts:100.0, status:"closed", closeCost:null, notes:"" },
+      { id:"s126", date:"2025-12-05", type:"put", strike:26.0, expiration:"2025-12-12", premium:0.33, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s127", date:"2025-12-05", type:"put", strike:27.5, expiration:"2025-12-05", premium:0.25, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s128", date:"2025-12-15", type:"call", strike:28.5, expiration:"2025-12-19", premium:0.12, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s129", date:"2025-12-15", type:"call", strike:28.0, expiration:"2025-12-19", premium:0.19, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s130", date:"2025-12-17", type:"put", strike:25.0, expiration:"2025-12-19", premium:0.34, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s131", date:"2025-12-26", type:"call", strike:27.5, expiration:"2026-01-02", premium:0.42, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s132", date:"2025-12-30", type:"call", strike:27.0, expiration:"2026-01-02", premium:0.22, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s133", date:"2026-01-05", type:"call", strike:29.0, expiration:"2026-01-09", premium:0.29, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s134", date:"2026-01-06", type:"put", strike:23.0, expiration:"2026-01-23", premium:0.21, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s135", date:"2026-01-06", type:"put", strike:26.0, expiration:"2026-01-09", premium:0.37, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s136", date:"2026-01-13", type:"call", strike:28.0, expiration:"2026-01-16", premium:0.19, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s137", date:"2026-01-15", type:"put", strike:23.0, expiration:"2026-01-30", premium:0.35, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s138", date:"2026-01-15", type:"put", strike:23.0, expiration:"2026-01-30", premium:0.35, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s139", date:"2026-01-20", type:"put", strike:23.0, expiration:"2026-01-30", premium:0.48, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s140", date:"2026-01-21", type:"call", strike:28.0, expiration:"2026-01-30", premium:0.38, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s141", date:"2026-01-27", type:"put", strike:24.0, expiration:"2026-01-30", premium:0.36, contracts:2, status:"assigned", closeCost:null, notes:"" },
+      { id:"s142", date:"2026-01-29", type:"put", strike:24.0, expiration:"2026-01-30", premium:0.81, contracts:2, status:"assigned", closeCost:null, notes:"" },
+      { id:"s143", date:"2026-01-30", type:"put", strike:23.0, expiration:"2026-04-17", premium:2.25, contracts:10, status:"expired", closeCost:null, notes:"" },
+      { id:"s144", date:"2026-02-02", type:"put", strike:20.0, expiration:"2026-03-06", premium:0.65, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s145", date:"2026-02-02", type:"call", strike:24.0, expiration:"2026-02-06", premium:0.17, contracts:7, status:"expired", closeCost:null, notes:"" },
+      { id:"s146", date:"2026-02-03", type:"put", strike:20.0, expiration:"2026-02-13", premium:0.37, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s147", date:"2026-02-05", type:"put", strike:19.0, expiration:"2026-04-17", premium:1.98, contracts:10, status:"expired", closeCost:null, notes:"" },
+      { id:"s148", date:"2026-02-05", type:"call", strike:20.5, expiration:"2026-02-06", premium:0.16, contracts:3, status:"assigned", closeCost:null, notes:"" },
+      { id:"s149", date:"2026-02-10", type:"put", strike:19.0, expiration:"2026-04-17", premium:0.94, contracts:10, status:"expired", closeCost:null, notes:"" },
+      { id:"s150", date:"2026-02-10", type:"put", strike:21.0, expiration:"2026-02-13", premium:0.27, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s151", date:"2026-03-10", type:"call", strike:20.0, expiration:"2026-03-13", premium:0.14, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s152", date:"2026-03-16", type:"put", strike:16.0, expiration:"2026-03-20", premium:0.19, contracts:2, status:"expired", closeCost:null, notes:"" },
+      { id:"s153", date:"2026-04-06", type:"call", strike:16.5, expiration:"2026-04-10", premium:0.29, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s154", date:"2026-04-08", type:"call", strike:17.5, expiration:"2026-04-10", premium:0.18, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s155", date:"2026-04-30", type:"call", strike:16.0, expiration:"2026-05-01", premium:0.23, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s156", date:"2026-04-30", type:"call", strike:16.0, expiration:"2026-05-01", premium:0.18, contracts:4, status:"assigned", closeCost:null, notes:"" },
+      { id:"s157", date:"2026-05-04", type:"put", strike:15.5, expiration:"2026-05-08", premium:0.15, contracts:1, status:"expired", closeCost:null, notes:"" },
+      { id:"s158", date:"2026-05-05", type:"put", strike:19.0, expiration:"2026-05-15", premium:2.83, contracts:3, status:"open", closeCost:null, notes:"" },
+      { id:"s159", date:"2026-05-05", type:"put", strike:16.0, expiration:"2026-05-08", premium:0.28, contracts:1, status:"assigned", closeCost:null, notes:"" },
+      { id:"s160", date:"2026-05-08", type:"put", strike:15.0, expiration:"2026-05-15", premium:0.15, contracts:2, status:"open", closeCost:null, notes:"" },
+      { id:"s161", date:"2026-05-11", type:"call", strike:16.5, expiration:"2026-05-15", premium:0.17, contracts:2, status:"open", closeCost:null, notes:"" },
+      { id:"s162", date:"2026-05-11", type:"call", strike:16.0, expiration:"2026-05-15", premium:0.31, contracts:1, status:"open", closeCost:null, notes:"" },
+      { id:"s163", date:"2026-05-15", type:"put", strike:15.0, expiration:"2026-05-22", premium:0.21, contracts:1, status:"open", closeCost:null, notes:"" }
     ]
   };
 
@@ -566,65 +727,104 @@
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
   // -------- Compute derived values --------
+  // Walks trades chronologically maintaining FIFO share lots so the cost basis
+  // reflects the actual cost of currently held shares (not running net cost).
   function compute() {
-    const trades = state.trades || [];
-    let sharesHeld = 0;
-    let grossBasis = 0;
-    let totalPremium = 0;
-    let putsPremium = 0;
-    let callsPremium = 0;
-    let timesAssigned = 0;
-    let expiredCount = 0;
-    let closedCount = 0;
-    let assignedCount = 0;
+    const allTrades = state.trades || [];
+    // Sort chronologically, with same-day tiebreaker putting shares acquired
+    // BEFORE shares sold/called away (handles the common pattern: buy 400
+    // shares + sell covered calls same day; calls assign days later).
+    const order = { share_buy: 0, put: 1, share_sell: 2, call: 3 };
+    const trades = [...allTrades].sort((a, b) => {
+      const d = (a.date || '').localeCompare(b.date || '');
+      if (d !== 0) return d;
+      return (order[a.type] ?? 9) - (order[b.type] ?? 9);
+    });
 
-    for (const t of trades) {
-      const shares = (t.contracts || 0) * 100;
-      const grossPrem = (t.premium || 0) * shares;
-      const buyback = (t.closeCost || 0) * shares;
-      const netPrem = grossPrem - buyback;
+    let totalPremium = 0, putsPremium = 0, callsPremium = 0;
+    let timesAssigned = 0, expiredCount = 0, closedCount = 0, assignedCount = 0;
+    let optionTradeCount = 0;
+    // FIFO lots: [{ shares, costPerShare }]
+    let lots = [];
 
-      totalPremium += netPrem;
-      if (t.type === 'put')  putsPremium  += netPrem;
-      if (t.type === 'call') callsPremium += netPrem;
-
-      if (t.status === 'assigned') {
-        timesAssigned++;
-        assignedCount++;
-        if (t.type === 'put') {
-          sharesHeld += shares;
-          grossBasis += (t.strike || 0) * shares;
+    function addLot(shares, costPerShare) {
+      if (shares > 0) lots.push({ shares, costPerShare });
+    }
+    function consumeLots(shares) {
+      // Consume `shares` from front of lots. Returns total cost of consumed shares.
+      let remaining = shares;
+      let consumedCost = 0;
+      while (remaining > 0 && lots.length > 0) {
+        const lot = lots[0];
+        if (lot.shares <= remaining) {
+          consumedCost += lot.shares * lot.costPerShare;
+          remaining -= lot.shares;
+          lots.shift();
         } else {
-          // covered call assigned = shares called away
-          sharesHeld -= shares;
-          grossBasis -= (t.strike || 0) * shares;
+          consumedCost += remaining * lot.costPerShare;
+          lot.shares -= remaining;
+          remaining = 0;
         }
       }
-      if (t.status === 'expired') expiredCount++;
-      if (t.status === 'closed')  closedCount++;
+      // If we ran out of lots and still owe shares, treat the excess as
+      // "short" with cost 0 — happens only with imported data that has
+      // accounting gaps.
+      return consumedCost;
     }
 
+    for (const t of trades) {
+      const isOption = t.type === 'put' || t.type === 'call';
+      const isShare  = t.type === 'share_buy' || t.type === 'share_sell';
+
+      if (isOption) {
+        optionTradeCount++;
+        const optShares = (t.contracts || 0) * 100;
+        const grossPrem = (t.premium || 0) * optShares;
+        const buyback   = (t.closeCost || 0) * optShares;
+        const netPrem   = grossPrem - buyback;
+        totalPremium += netPrem;
+        if (t.type === 'put')  putsPremium  += netPrem;
+        if (t.type === 'call') callsPremium += netPrem;
+
+        if (t.status === 'assigned') {
+          timesAssigned++;
+          assignedCount++;
+          if (t.type === 'put') addLot(optShares, t.strike || 0);
+          else consumeLots(optShares);
+        } else if (t.status === 'expired') {
+          expiredCount++;
+        } else if (t.status === 'closed') {
+          closedCount++;
+        }
+      } else if (t.type === 'share_buy') {
+        addLot(t.contracts || 0, t.strike || 0);
+      } else if (t.type === 'share_sell') {
+        consumeLots(t.contracts || 0);
+      }
+    }
+
+    const sharesHeld = lots.reduce((s, l) => s + l.shares, 0);
+    const basisCost  = lots.reduce((s, l) => s + l.shares * l.costPerShare, 0);
+    const avgBasis   = sharesHeld > 0 ? basisCost / sharesHeld : 0;
     const currentValue = sharesHeld * (state.currentPrice || 0);
-    // Unrealized P&L vs gross assignment cost
-    const unrealizedVsGross = sharesHeld > 0 ? currentValue - grossBasis : 0;
-    // Premium-adjusted basis (the true break-even)
-    const adjBasis = sharesHeld > 0 ? (grossBasis - totalPremium) / sharesHeld : 0;
-    // Unrealized P&L vs adjusted basis (i.e. true net position on shares)
-    const unrealizedVsAdj = sharesHeld > 0 ? (state.currentPrice - adjBasis) * sharesHeld : 0;
-    // Net position = premiums + unrealized share movement vs assignment
-    const netPosition = totalPremium + unrealizedVsGross;
+    const unrealizedVsBasis = sharesHeld > 0 ? currentValue - basisCost : 0;
+    // Premium-adjusted basis = avg basis minus per-share premium attribution
+    const adjBasis = sharesHeld > 0 ? avgBasis - (totalPremium / sharesHeld) : 0;
+    // Net position: premiums collected + unrealized P&L on currently held shares
+    const netPosition = totalPremium + unrealizedVsBasis;
 
     const closedTrades = expiredCount + closedCount + assignedCount;
     const winRate = closedTrades > 0 ? expiredCount / closedTrades : null;
-    const avgPremium = trades.length > 0 ? totalPremium / trades.length : 0;
+    const avgPremium = optionTradeCount > 0 ? totalPremium / optionTradeCount : 0;
 
     return {
-      sharesHeld, grossBasis, adjBasis, currentValue,
-      unrealizedVsGross, unrealizedVsAdj,
+      sharesHeld, basisCost, avgBasis, adjBasis, currentValue,
+      unrealizedVsBasis,
       totalPremium, putsPremium, callsPremium,
       timesAssigned, expiredCount, closedCount, assignedCount,
       winRate, avgPremium, netPosition,
-      tradeCount: trades.length
+      tradeCount: allTrades.length,
+      optionTradeCount,
     };
   }
 
@@ -672,11 +872,11 @@
     let detailHtml = '';
     detailHtml += `<span>Premiums collected <strong class="pos">${fmtMoney(c.totalPremium)}</strong></span>`;
     if (c.sharesHeld > 0) {
-      const cls = c.unrealizedVsGross >= 0 ? 'pos' : 'neg';
-      const label = c.unrealizedVsGross >= 0 ? 'Unrealized gain on shares' : 'Unrealized loss on shares';
-      detailHtml += `<span>${label} <strong class="${cls}">${fmtMoney(c.unrealizedVsGross, { sign: true })}</strong></span>`;
-      if (c.unrealizedVsGross < 0) {
-        const offset = c.totalPremium + c.unrealizedVsGross;
+      const cls = c.unrealizedVsBasis >= 0 ? 'pos' : 'neg';
+      const label = c.unrealizedVsBasis >= 0 ? 'Unrealized gain on shares' : 'Unrealized loss on shares';
+      detailHtml += `<span>${label} <strong class="${cls}">${fmtMoney(c.unrealizedVsBasis, { sign: true })}</strong></span>`;
+      if (c.unrealizedVsBasis < 0) {
+        const offset = c.totalPremium + c.unrealizedVsBasis;
         const offsetCls = offset >= 0 ? 'pos' : 'neg';
         detailHtml += `<span>${offset >= 0 ? 'Premiums fully offset the loss' : 'Premiums partially offset'} <strong class="${offsetCls}">(${fmtMoney(offset, { sign: true })} net)</strong></span>`;
       }
@@ -688,18 +888,20 @@
     // Stats
     document.getElementById('stat-shares').textContent = fmtNum(c.sharesHeld);
     document.getElementById('stat-shares-sub').textContent =
-      c.sharesHeld > 0 ? `Current value ${fmtMoney(c.currentValue)}` : 'No assignments yet';
+      c.sharesHeld > 0 ? `Current value ${fmtMoney(c.currentValue)}` : 'No shares held';
 
     document.getElementById('stat-basis').textContent =
-      c.sharesHeld > 0 ? fmtMoney(c.adjBasis) : '—';
+      c.sharesHeld > 0 ? fmtMoney(c.avgBasis) : '—';
     document.getElementById('stat-basis-sub').textContent =
-      c.sharesHeld > 0 ? `Gross ${fmtMoney(c.grossBasis / c.sharesHeld)}` : 'Premium-adjusted';
+      c.sharesHeld > 0 ? `FIFO across ${fmtNum(c.sharesHeld)} shares` : 'FIFO cost basis';
 
     document.getElementById('stat-breakeven').textContent =
       c.sharesHeld > 0 ? fmtMoney(c.adjBasis) : '—';
     document.getElementById('stat-breakeven-sub').textContent =
       c.sharesHeld > 0
-        ? (state.currentPrice >= c.adjBasis ? 'Currently above break-even ✓' : `Need ${fmtMoney(c.adjBasis - state.currentPrice)} to break even`)
+        ? (c.adjBasis <= 0
+            ? 'Premiums exceed total basis ✓'
+            : (state.currentPrice >= c.adjBasis ? 'Above break-even ✓' : `Need ${fmtMoney(c.adjBasis - state.currentPrice)} to break even`))
         : 'Cost basis minus premiums';
 
     const priceInput = document.getElementById('current-price');
@@ -728,20 +930,31 @@
       return;
     }
     tbody.innerHTML = trades.map(t => {
-      const shares = (t.contracts || 0) * 100;
-      const grossPrem = (t.premium || 0) * shares;
-      const buyback = (t.closeCost || 0) * shares;
-      const pl = grossPrem - buyback;
+      const isShare = t.type === 'share_buy' || t.type === 'share_sell';
+      const typeLabel = isShare
+        ? (t.type === 'share_buy' ? 'BUY SHARES' : 'SELL SHARES')
+        : t.type.toUpperCase();
+      let pl, plDisplay;
+      if (isShare) {
+        const total = (t.strike || 0) * (t.contracts || 0);
+        plDisplay = `<span class="muted">${fmtMoney(total)}</span>`;
+      } else {
+        const shares = (t.contracts || 0) * 100;
+        const grossPrem = (t.premium || 0) * shares;
+        const buyback = (t.closeCost || 0) * shares;
+        pl = grossPrem - buyback;
+        plDisplay = `<span class="pos">${fmtMoney(pl, { sign: true })}</span>`;
+      }
       return `
         <tr>
           <td>${fmtDate(t.date)}</td>
-          <td><span class="type-${t.type}">${t.type.toUpperCase()}</span></td>
+          <td><span class="type-${t.type}">${typeLabel}</span></td>
           <td>${fmtMoney(t.strike)}</td>
-          <td class="hide-mobile">${fmtDate(t.expiration)}</td>
-          <td>${fmtMoney(t.premium)}</td>
-          <td>${t.contracts}</td>
-          <td><span class="status-badge status-${t.status}">${t.status}</span></td>
-          <td class="pos">${fmtMoney(pl, { sign: true })}</td>
+          <td class="hide-mobile">${isShare ? '<span class="muted">—</span>' : fmtDate(t.expiration)}</td>
+          <td>${isShare ? '<span class="muted">—</span>' : fmtMoney(t.premium)}</td>
+          <td>${isShare ? fmtNum(t.contracts) : t.contracts}</td>
+          <td>${isShare ? '<span class="status-badge status-closed">filled</span>' : `<span class="status-badge status-${t.status}">${t.status}</span>`}</td>
+          <td>${plDisplay}</td>
           <td class="row-actions">
             <button class="ghost" data-edit="${t.id}">Edit</button>
             <button class="ghost" data-delete="${t.id}">Del</button>
@@ -871,6 +1084,7 @@
       document.getElementById('f-date').value = new Date().toISOString().slice(0,10);
       document.getElementById('f-contracts').value = 1;
     }
+    updateFormForType();
     form.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   function closeForm() {
@@ -885,19 +1099,38 @@
   });
   cancelBtn.addEventListener('click', closeForm);
 
+  // Toggle form fields based on type
+  function updateFormForType() {
+    const type = document.getElementById('f-type').value;
+    const isShare = type === 'share_buy' || type === 'share_sell';
+    document.getElementById('f-strike-label').textContent = isShare ? 'Price / share' : 'Strike';
+    document.getElementById('f-contracts-label').textContent = isShare ? 'Shares' : 'Contracts';
+    document.getElementById('f-expiration').required = !isShare;
+    document.getElementById('f-premium').required = !isShare;
+    // For shares, hide premium/expiration/status/closecost rows by greying them
+    const grey = isShare ? '0.4' : '1';
+    document.getElementById('f-expiration').style.opacity = grey;
+    document.getElementById('f-premium').style.opacity = grey;
+    document.getElementById('f-status').style.opacity = grey;
+    document.getElementById('f-closecost').style.opacity = grey;
+  }
+  document.getElementById('f-type').addEventListener('change', updateFormForType);
+
   form.addEventListener('submit', e => {
     e.preventDefault();
     const id = document.getElementById('trade-id').value;
+    const type = document.getElementById('f-type').value;
+    const isShare = type === 'share_buy' || type === 'share_sell';
     const trade = {
       id: id || ('t_' + Date.now() + '_' + Math.floor(Math.random()*999)),
       date: document.getElementById('f-date').value,
-      type: document.getElementById('f-type').value,
+      type,
       strike: parseFloat(document.getElementById('f-strike').value),
-      expiration: document.getElementById('f-expiration').value,
-      premium: parseFloat(document.getElementById('f-premium').value),
-      contracts: parseInt(document.getElementById('f-contracts').value, 10) || 1,
-      status: document.getElementById('f-status').value,
-      closeCost: parseFloat(document.getElementById('f-closecost').value) || null,
+      expiration: isShare ? '' : document.getElementById('f-expiration').value,
+      premium: isShare ? 0 : (parseFloat(document.getElementById('f-premium').value) || 0),
+      contracts: parseFloat(document.getElementById('f-contracts').value) || 0,
+      status: isShare ? 'closed' : document.getElementById('f-status').value,
+      closeCost: isShare ? null : (parseFloat(document.getElementById('f-closecost').value) || null),
       notes: document.getElementById('f-notes').value || ''
     };
     if (id) {
@@ -1036,6 +1269,8 @@
   function normalizeType(s) {
     if (!s) return 'put';
     s = String(s).trim().toLowerCase();
+    if (s.includes('share_buy') || s === 'buy') return 'share_buy';
+    if (s.includes('share_sell') || s === 'sell') return 'share_sell';
     if (s.includes('call')) return 'call';
     if (s.includes('put')) return 'put';
     return 'put';
