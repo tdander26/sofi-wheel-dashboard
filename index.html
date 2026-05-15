@@ -727,56 +727,23 @@
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
   // -------- Compute derived values --------
-  // Walks trades chronologically maintaining FIFO share lots so the cost basis
-  // reflects the actual cost of currently held shares (not running net cost).
+  // Walks events chronologically maintaining FIFO share lots so the cost basis
+  // reflects the cost of currently held shares (not running net cost).
+  // Each option assignment moves shares on the EXPIRATION date, not the sell
+  // date — splitting the option trade into a premium event (on sell date) and
+  // a share-movement event (on expiration) gives accurate FIFO order.
+  // Imported data can have sells preceding their matching buys on the same
+  // date (Robinhood logs are sometimes ambiguous); a short-share counter
+  // covers those cases so phantom lots don't accumulate.
   function compute() {
     const allTrades = state.trades || [];
-    // Sort chronologically, with same-day tiebreaker putting shares acquired
-    // BEFORE shares sold/called away (handles the common pattern: buy 400
-    // shares + sell covered calls same day; calls assign days later).
-    const order = { share_buy: 0, put: 1, share_sell: 2, call: 3 };
-    const trades = [...allTrades].sort((a, b) => {
-      const d = (a.date || '').localeCompare(b.date || '');
-      if (d !== 0) return d;
-      return (order[a.type] ?? 9) - (order[b.type] ?? 9);
-    });
 
+    // Tally premium / counts (order-independent)
     let totalPremium = 0, putsPremium = 0, callsPremium = 0;
     let timesAssigned = 0, expiredCount = 0, closedCount = 0, assignedCount = 0;
     let optionTradeCount = 0;
-    // FIFO lots: [{ shares, costPerShare }]
-    let lots = [];
-
-    function addLot(shares, costPerShare) {
-      if (shares > 0) lots.push({ shares, costPerShare });
-    }
-    function consumeLots(shares) {
-      // Consume `shares` from front of lots. Returns total cost of consumed shares.
-      let remaining = shares;
-      let consumedCost = 0;
-      while (remaining > 0 && lots.length > 0) {
-        const lot = lots[0];
-        if (lot.shares <= remaining) {
-          consumedCost += lot.shares * lot.costPerShare;
-          remaining -= lot.shares;
-          lots.shift();
-        } else {
-          consumedCost += remaining * lot.costPerShare;
-          lot.shares -= remaining;
-          remaining = 0;
-        }
-      }
-      // If we ran out of lots and still owe shares, treat the excess as
-      // "short" with cost 0 — happens only with imported data that has
-      // accounting gaps.
-      return consumedCost;
-    }
-
-    for (const t of trades) {
-      const isOption = t.type === 'put' || t.type === 'call';
-      const isShare  = t.type === 'share_buy' || t.type === 'share_sell';
-
-      if (isOption) {
+    for (const t of allTrades) {
+      if (t.type === 'put' || t.type === 'call') {
         optionTradeCount++;
         const optShares = (t.contracts || 0) * 100;
         const grossPrem = (t.premium || 0) * optShares;
@@ -785,22 +752,58 @@
         totalPremium += netPrem;
         if (t.type === 'put')  putsPremium  += netPrem;
         if (t.type === 'call') callsPremium += netPrem;
-
-        if (t.status === 'assigned') {
-          timesAssigned++;
-          assignedCount++;
-          if (t.type === 'put') addLot(optShares, t.strike || 0);
-          else consumeLots(optShares);
-        } else if (t.status === 'expired') {
-          expiredCount++;
-        } else if (t.status === 'closed') {
-          closedCount++;
-        }
-      } else if (t.type === 'share_buy') {
-        addLot(t.contracts || 0, t.strike || 0);
-      } else if (t.type === 'share_sell') {
-        consumeLots(t.contracts || 0);
+        if (t.status === 'assigned')      { timesAssigned++; assignedCount++; }
+        else if (t.status === 'expired')  expiredCount++;
+        else if (t.status === 'closed')   closedCount++;
       }
+    }
+
+    // Build share-movement events sorted by settlement date
+    const events = [];
+    for (const t of allTrades) {
+      if (t.type === 'share_buy') {
+        events.push({ date: t.date, kind: 'add', shares: t.contracts || 0, cost: t.strike || 0 });
+      } else if (t.type === 'share_sell') {
+        events.push({ date: t.date, kind: 'sub', shares: t.contracts || 0 });
+      } else if ((t.type === 'put' || t.type === 'call') && t.status === 'assigned') {
+        const settle = t.expiration || t.date;
+        const s = (t.contracts || 0) * 100;
+        if (t.type === 'put')
+          events.push({ date: settle, kind: 'add', shares: s, cost: t.strike || 0 });
+        else
+          events.push({ date: settle, kind: 'sub', shares: s });
+      }
+    }
+    const eventOrder = { add: 0, sub: 1 };
+    events.sort((a, b) => {
+      const d = (a.date || '').localeCompare(b.date || '');
+      if (d !== 0) return d;
+      return eventOrder[a.kind] - eventOrder[b.kind];
+    });
+
+    let lots = [];
+    let shortShares = 0;
+    function addLot(shares, costPerShare) {
+      if (shares <= 0) return;
+      if (shortShares > 0) {
+        const cover = Math.min(shortShares, shares);
+        shortShares -= cover;
+        shares -= cover;
+      }
+      if (shares > 0) lots.push({ shares, costPerShare });
+    }
+    function subLots(shares) {
+      let remaining = shares;
+      while (remaining > 0 && lots.length > 0) {
+        const lot = lots[0];
+        if (lot.shares <= remaining) { remaining -= lot.shares; lots.shift(); }
+        else { lot.shares -= remaining; remaining = 0; }
+      }
+      if (remaining > 0) shortShares += remaining;
+    }
+    for (const e of events) {
+      if (e.kind === 'add') addLot(e.shares, e.cost);
+      else subLots(e.shares);
     }
 
     const sharesHeld = lots.reduce((s, l) => s + l.shares, 0);
