@@ -288,6 +288,23 @@
   }
   tbody tr:last-child td { border-bottom: none; }
   tbody tr:hover { background: rgba(255,255,255,0.02); }
+  tbody tr.section-header td {
+    background: var(--surface-2);
+    color: var(--text-dim);
+    font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr.section-header:hover td { background: var(--surface-2); }
+  tbody tr.section-header .section-count {
+    margin-left: 8px;
+    background: var(--bg);
+    color: var(--text-faint);
+    padding: 1px 6px; border-radius: 3px;
+    font-size: 10px; font-weight: 600;
+  }
   tbody tr.stale { background: rgba(248,180,77,0.06); }
   tbody tr.stale:hover { background: rgba(248,180,77,0.10); }
   tbody tr.stale td:first-child { border-left: 2px solid var(--accent); }
@@ -892,20 +909,24 @@
       }
     }
 
-    // Build share-movement events sorted by settlement date
+    // Build share-movement events with IRS-style per-share values:
+    //   • put assigned   → basis     = strike − premium received
+    //   • call assigned  → saleprice = strike + premium received
+    //   • outright buy   → basis     = price paid
+    //   • outright sell  → saleprice = price received
     const events = [];
     for (const t of allTrades) {
       if (t.type === 'share_buy') {
-        events.push({ date: t.date, kind: 'add', shares: t.contracts || 0, cost: t.strike || 0 });
+        events.push({ date: t.date, kind: 'add', shares: t.contracts || 0, perShare: t.strike || 0 });
       } else if (t.type === 'share_sell') {
-        events.push({ date: t.date, kind: 'sub', shares: t.contracts || 0 });
+        events.push({ date: t.date, kind: 'sub', shares: t.contracts || 0, perShare: t.strike || 0 });
       } else if ((t.type === 'put' || t.type === 'call') && t.status === 'assigned') {
         const settle = t.expiration || t.date;
         const s = (t.contracts || 0) * 100;
         if (t.type === 'put')
-          events.push({ date: settle, kind: 'add', shares: s, cost: t.strike || 0 });
+          events.push({ date: settle, kind: 'add', shares: s, perShare: (t.strike || 0) - (t.premium || 0) });
         else
-          events.push({ date: settle, kind: 'sub', shares: s });
+          events.push({ date: settle, kind: 'sub', shares: s, perShare: (t.strike || 0) + (t.premium || 0) });
       }
     }
     const eventOrder = { add: 0, sub: 1 };
@@ -917,14 +938,14 @@
 
     let lots = [];
     let shortShares = 0;
-    function addLot(shares, costPerShare) {
+    function addLot(shares, basis) {
       if (shares <= 0) return;
       if (shortShares > 0) {
         const cover = Math.min(shortShares, shares);
         shortShares -= cover;
         shares -= cover;
       }
-      if (shares > 0) lots.push({ shares, costPerShare });
+      if (shares > 0) lots.push({ shares, basis });
     }
     function subLots(shares) {
       let remaining = shares;
@@ -936,12 +957,18 @@
       if (remaining > 0) shortShares += remaining;
     }
     for (const e of events) {
-      if (e.kind === 'add') addLot(e.shares, e.cost);
+      if (e.kind === 'add') addLot(e.shares, e.perShare);
       else subLots(e.shares);
     }
+    // NOTE: wash sale rule adjustments (disallowed losses rolled into the
+    // basis of replacement shares acquired within ±30 days) are NOT modeled
+    // here. Brokers like Robinhood track wash sales precisely using the IRS
+    // specific-lot rules — for active wheel cyclers the cumulative effect
+    // can shift basis by a couple of dollars per share. Use the Avg Cost
+    // Basis input to paste your broker's actual reported basis.
 
     const sharesHeld = lots.reduce((s, l) => s + l.shares, 0);
-    const basisCostFifo = lots.reduce((s, l) => s + l.shares * l.costPerShare, 0);
+    const basisCostFifo = lots.reduce((s, l) => s + l.shares * l.basis, 0);
     const avgBasisFifo  = sharesHeld > 0 ? basisCostFifo / sharesHeld : 0;
     // Effective basis: user override (e.g. matching Robinhood's IRS-adjusted +
     // wash-sale-adjusted basis) takes priority; otherwise use our FIFO walk.
@@ -1079,10 +1106,10 @@
     }
     document.getElementById('basis-reset').classList.toggle('hidden', !c.isOverridden);
     document.getElementById('stat-basis-sub').textContent = c.sharesHeld === 0
-      ? 'FIFO cost basis'
+      ? 'IRS-adjusted basis'
       : c.isOverridden
-        ? `Manual override · FIFO would be ${fmtMoney(c.avgBasisFifo)}`
-        : `FIFO across ${fmtNum(c.sharesHeld)} shares — click to override`;
+        ? `Manual override · computed would be ${fmtMoney(c.avgBasisFifo)}`
+        : `IRS-adjusted FIFO — paste broker value to override`;
 
     document.getElementById('stat-breakeven').textContent =
       c.sharesHeld > 0 ? fmtMoney(c.adjBasis) : '—';
@@ -1134,13 +1161,22 @@
 
   function renderTable() {
     const tbody = document.getElementById('trades-tbody');
-    const trades = [...(state.trades || [])].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-    if (trades.length === 0) {
+    const all = [...(state.trades || [])];
+    if (all.length === 0) {
       tbody.innerHTML = '<tr class="empty-row"><td colspan="9">No trades yet. Click <strong>+ New Trade</strong> above or Import CSV.</td></tr>';
       return;
     }
+    // Split: open option positions first (sorted by expiration ASC so the
+    // closest-to-expiry shows on top), then everything else (history) by
+    // most-recent-first.
+    const isOpenOption = t => (t.type === 'put' || t.type === 'call') && t.status === 'open';
+    const openTrades = all.filter(isOpenOption)
+      .sort((a, b) => (a.expiration || '9999').localeCompare(b.expiration || '9999'));
+    const history = all.filter(t => !isOpenOption(t))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
     const today = new Date().toISOString().slice(0, 10);
-    tbody.innerHTML = trades.map(t => {
+    const renderRow = (t) => {
       const isShare = t.type === 'share_buy' || t.type === 'share_sell';
       const isOption = t.type === 'put' || t.type === 'call';
       const isOpen = isOption && t.status === 'open';
@@ -1180,7 +1216,21 @@
           </td>
         </tr>
       `;
-    }).join('');
+    };
+
+    const sectionHeader = (label, count) =>
+      `<tr class="section-header"><td colspan="9">${label} <span class="section-count">${count}</span></td></tr>`;
+
+    let html = '';
+    if (openTrades.length > 0) {
+      html += sectionHeader('Open Positions', openTrades.length);
+      html += openTrades.map(renderRow).join('');
+    }
+    if (history.length > 0) {
+      html += sectionHeader('History', history.length);
+      html += history.map(renderRow).join('');
+    }
+    tbody.innerHTML = html;
 
     tbody.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => editTrade(b.dataset.edit)));
     tbody.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => deleteTrade(b.dataset.delete)));
