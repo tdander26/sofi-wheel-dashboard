@@ -70,6 +70,40 @@
     flex-wrap: wrap; gap: 10px;
   }
   .banner.hidden { display: none; }
+  .banner.warn { background: rgba(248,180,77,0.10); border-color: rgba(248,180,77,0.35); color: var(--accent); }
+
+  /* Date range bar */
+  .range-bar {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin-bottom: 20px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .range-bar .range-label {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-dim); margin-right: 6px;
+  }
+  .range-bar button.range {
+    background: transparent; border: 1px solid transparent;
+    color: var(--text-dim); padding: 5px 10px; font-size: 12px;
+    border-radius: 4px; font-weight: 500;
+  }
+  .range-bar button.range:hover { background: var(--surface-2); color: var(--text); }
+  .range-bar button.range.active {
+    background: var(--accent-dim); color: var(--accent);
+    border-color: rgba(245,179,66,0.35);
+  }
+  .range-bar .custom-dates { display: flex; gap: 6px; align-items: center; margin-left: 8px; }
+  .range-bar .custom-dates input {
+    background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); padding: 4px 6px; border-radius: 4px;
+    font-family: inherit; font-size: 12px;
+  }
+  .range-bar .custom-dates input:focus { outline: none; border-color: var(--accent); }
+  .range-bar .custom-dates.hidden { display: none; }
+  .range-context { font-size: 11px; color: var(--text-faint); margin-left: auto; }
 
   .card {
     background: var(--surface);
@@ -247,6 +281,23 @@
   }
   tbody tr:last-child td { border-bottom: none; }
   tbody tr:hover { background: rgba(255,255,255,0.02); }
+  tbody tr.stale { background: rgba(248,180,77,0.06); }
+  tbody tr.stale:hover { background: rgba(248,180,77,0.10); }
+  tbody tr.stale td:first-child { border-left: 2px solid var(--accent); }
+  .btn-expire {
+    background: rgba(52,211,153,0.10); color: var(--green);
+    border: 1px solid rgba(52,211,153,0.25);
+    padding: 3px 8px; font-size: 11px; border-radius: 4px;
+    font-weight: 600;
+  }
+  .btn-expire:hover { background: rgba(52,211,153,0.20); }
+  .btn-assign {
+    background: rgba(245,179,66,0.10); color: var(--accent);
+    border: 1px solid rgba(245,179,66,0.25);
+    padding: 3px 8px; font-size: 11px; border-radius: 4px;
+    font-weight: 600;
+  }
+  .btn-assign:hover { background: rgba(245,179,66,0.20); }
   .empty-row td { text-align: center; padding: 30px; color: var(--text-dim); }
   .status-badge {
     display: inline-block; padding: 2px 8px; border-radius: 4px;
@@ -342,6 +393,28 @@
     <button id="clear-sample">Clear sample data</button>
   </div>
 
+  <div id="review-banner" class="banner warn hidden">
+    <span><strong id="review-count">0</strong> open position(s) past expiration — scroll down to mark them Expired or Assigned.</span>
+    <button id="review-scroll">Review</button>
+  </div>
+
+  <!-- Date range filter -->
+  <section class="range-bar">
+    <span class="range-label">Range</span>
+    <button class="range active" data-range="all">All Time</button>
+    <button class="range" data-range="ytd">YTD</button>
+    <button class="range" data-range="mtd">MTD</button>
+    <button class="range" data-range="90d">90 Days</button>
+    <button class="range" data-range="30d">30 Days</button>
+    <button class="range" data-range="custom">Custom</button>
+    <div class="custom-dates hidden" id="custom-dates">
+      <input type="date" id="range-from">
+      <span class="muted" style="font-size:12px">to</span>
+      <input type="date" id="range-to">
+    </div>
+    <span class="range-context" id="range-context"></span>
+  </section>
+
   <!-- Hero metric -->
   <section class="hero" id="hero">
     <div class="hero-label">Net Position</div>
@@ -376,7 +449,7 @@
   <!-- Premium breakdown -->
   <section class="card">
     <div class="card-header">
-      <h3>Premium &amp; Performance</h3>
+      <h3 class="premium-card-header">Premium &amp; Performance</h3>
     </div>
     <div class="premium-grid">
       <div class="premium-cell">
@@ -537,7 +610,7 @@
   // -------- Sample data --------
   const SAMPLE_DATA = {
     ticker: 'SOFI',
-    currentPrice: 15.50,
+    currentPrice: 14.75,
     isSample: true,
     trades: [
       { id:"s1", date:"2021-10-27", type:"share_buy", strike:19.54, expiration:"", premium:0.0, contracts:1.023803, status:"closed", closeCost:null, notes:"" },
@@ -699,7 +772,7 @@
       { id:"s157", date:"2026-05-04", type:"put", strike:15.5, expiration:"2026-05-08", premium:0.15, contracts:1, status:"expired", closeCost:null, notes:"" },
       { id:"s158", date:"2026-05-05", type:"put", strike:19.0, expiration:"2026-05-15", premium:2.83, contracts:3, status:"open", closeCost:null, notes:"" },
       { id:"s159", date:"2026-05-05", type:"put", strike:16.0, expiration:"2026-05-08", premium:0.28, contracts:1, status:"assigned", closeCost:null, notes:"" },
-      { id:"s160", date:"2026-05-08", type:"put", strike:15.0, expiration:"2026-05-15", premium:0.15, contracts:2, status:"open", closeCost:null, notes:"" },
+      { id:"s160", date:"2026-05-08", type:"put", strike:15.0, expiration:"2026-05-15", premium:0.15, contracts:2, status:"assigned", closeCost:null, notes:"" },
       { id:"s161", date:"2026-05-11", type:"call", strike:16.5, expiration:"2026-05-15", premium:0.17, contracts:2, status:"open", closeCost:null, notes:"" },
       { id:"s162", date:"2026-05-11", type:"call", strike:16.0, expiration:"2026-05-15", premium:0.31, contracts:1, status:"open", closeCost:null, notes:"" },
       { id:"s163", date:"2026-05-15", type:"put", strike:15.0, expiration:"2026-05-22", premium:0.21, contracts:1, status:"open", closeCost:null, notes:"" }
@@ -711,15 +784,21 @@
 
   function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return clone(SAMPLE_DATA);
-    try {
-      const parsed = JSON.parse(raw);
-      if (!parsed.trades) parsed.trades = [];
-      if (typeof parsed.currentPrice !== 'number') parsed.currentPrice = 0;
-      return parsed;
-    } catch {
-      return clone(SAMPLE_DATA);
+    let s;
+    if (!raw) s = clone(SAMPLE_DATA);
+    else {
+      try {
+        s = JSON.parse(raw);
+        if (!s.trades) s.trades = [];
+        if (typeof s.currentPrice !== 'number') s.currentPrice = 0;
+      } catch {
+        s = clone(SAMPLE_DATA);
+      }
     }
+    if (!s.dateRange) s.dateRange = 'all';
+    if (!s.customFrom) s.customFrom = '';
+    if (!s.customTo)   s.customTo = '';
+    return s;
   }
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -735,15 +814,49 @@
   // Imported data can have sells preceding their matching buys on the same
   // date (Robinhood logs are sometimes ambiguous); a short-share counter
   // covers those cases so phantom lots don't accumulate.
+  // Resolve the currently-active date range into {from, to} ISO strings (inclusive).
+  // Returns nulls for "all time".
+  function getActiveRange() {
+    const r = state.dateRange || 'all';
+    const today = new Date();
+    const iso = (d) => d.toISOString().slice(0, 10);
+    if (r === 'all') return { from: null, to: null, label: 'All Time' };
+    if (r === 'ytd') return { from: `${today.getFullYear()}-01-01`, to: iso(today), label: 'YTD' };
+    if (r === 'mtd') {
+      const m = String(today.getMonth() + 1).padStart(2, '0');
+      return { from: `${today.getFullYear()}-${m}-01`, to: iso(today), label: 'MTD' };
+    }
+    if (r === '30d') { const d = new Date(today); d.setDate(d.getDate() - 30); return { from: iso(d), to: iso(today), label: 'Last 30 Days' }; }
+    if (r === '90d') { const d = new Date(today); d.setDate(d.getDate() - 90); return { from: iso(d), to: iso(today), label: 'Last 90 Days' }; }
+    if (r === 'custom') return {
+      from: state.customFrom || null, to: state.customTo || null,
+      label: state.customFrom && state.customTo
+        ? `${state.customFrom} to ${state.customTo}` : 'Custom'
+    };
+    return { from: null, to: null, label: 'All Time' };
+  }
+
   function compute() {
     const allTrades = state.trades || [];
+    const range = getActiveRange();
+    const inRange = (d) => {
+      if (!d) return false;
+      if (range.from && d < range.from) return false;
+      if (range.to && d > range.to) return false;
+      return true;
+    };
 
-    // Tally premium / counts (order-independent)
+    // Tally premium / counts. ALWAYS computes all-time totals (used by hero
+    // and for fallback). Also computes in-range totals — these power the
+    // premium card, charts, and any "for this period" displays.
     let totalPremium = 0, putsPremium = 0, callsPremium = 0;
     let timesAssigned = 0, expiredCount = 0, closedCount = 0, assignedCount = 0;
     let optionTradeCount = 0;
+    let rangeTotalPremium = 0, rangePutsPremium = 0, rangeCallsPremium = 0;
+    let rangeAssigned = 0, rangeExpired = 0, rangeClosed = 0, rangeOptionCount = 0;
     for (const t of allTrades) {
       if (t.type === 'put' || t.type === 'call') {
+        const inR = range.from || range.to ? inRange(t.date) : true;
         optionTradeCount++;
         const optShares = (t.contracts || 0) * 100;
         const grossPrem = (t.premium || 0) * optShares;
@@ -755,6 +868,15 @@
         if (t.status === 'assigned')      { timesAssigned++; assignedCount++; }
         else if (t.status === 'expired')  expiredCount++;
         else if (t.status === 'closed')   closedCount++;
+        if (inR) {
+          rangeOptionCount++;
+          rangeTotalPremium += netPrem;
+          if (t.type === 'put')  rangePutsPremium  += netPrem;
+          if (t.type === 'call') rangeCallsPremium += netPrem;
+          if (t.status === 'assigned')     rangeAssigned++;
+          else if (t.status === 'expired') rangeExpired++;
+          else if (t.status === 'closed')  rangeClosed++;
+        }
       }
     }
 
@@ -820,14 +942,23 @@
     const winRate = closedTrades > 0 ? expiredCount / closedTrades : null;
     const avgPremium = optionTradeCount > 0 ? totalPremium / optionTradeCount : 0;
 
+    const rangeClosedTrades = rangeExpired + rangeClosed + rangeAssigned;
+    const rangeWinRate = rangeClosedTrades > 0 ? rangeExpired / rangeClosedTrades : null;
+    const rangeAvgPremium = rangeOptionCount > 0 ? rangeTotalPremium / rangeOptionCount : 0;
+
     return {
-      sharesHeld, basisCost, avgBasis, adjBasis, currentValue,
-      unrealizedVsBasis,
+      // Current snapshot — never filtered by range
+      sharesHeld, basisCost, avgBasis, adjBasis, currentValue, unrealizedVsBasis,
+      // All-time tallies — also unfiltered
       totalPremium, putsPremium, callsPremium,
       timesAssigned, expiredCount, closedCount, assignedCount,
       winRate, avgPremium, netPosition,
-      tradeCount: allTrades.length,
-      optionTradeCount,
+      tradeCount: allTrades.length, optionTradeCount,
+      // Range-filtered tallies
+      range,
+      rangeTotalPremium, rangePutsPremium, rangeCallsPremium,
+      rangeAssigned, rangeExpired, rangeClosed, rangeOptionCount,
+      rangeWinRate, rangeAvgPremium,
     };
   }
 
@@ -858,37 +989,66 @@
 
   function render() {
     const c = compute();
+    const isAll = c.range.from === null && c.range.to === null;
 
     // Sample banner
     document.getElementById('sample-banner').classList.toggle('hidden', !state.isSample);
 
-    // Hero
+    // Range bar UI sync
+    document.querySelectorAll('.range-bar button.range').forEach(b => {
+      b.classList.toggle('active', b.dataset.range === state.dateRange);
+    });
+    document.getElementById('custom-dates').classList.toggle('hidden', state.dateRange !== 'custom');
+    document.getElementById('range-from').value = state.customFrom || '';
+    document.getElementById('range-to').value = state.customTo || '';
+    document.getElementById('range-context').textContent =
+      isAll ? '' : `Showing data ${c.range.from || '…'} → ${c.range.to || '…'}`;
+
+    // Hero — when "All Time", show Net Position (premium + unrealized).
+    // When a range is selected, show Period Premium for that window.
     const hero = document.getElementById('hero');
     const heroValue = document.getElementById('hero-value');
     const heroDetail = document.getElementById('hero-detail');
-    heroValue.textContent = fmtMoney(c.netPosition, { sign: true });
-    heroValue.classList.toggle('positive', c.netPosition >= 0);
-    heroValue.classList.toggle('negative', c.netPosition < 0);
-    hero.classList.toggle('positive', c.netPosition >= 0);
-    hero.classList.toggle('negative', c.netPosition < 0);
+    const heroLabel = document.querySelector('.hero-label');
 
+    let mainNum, mainPositive;
     let detailHtml = '';
-    detailHtml += `<span>Premiums collected <strong class="pos">${fmtMoney(c.totalPremium)}</strong></span>`;
-    if (c.sharesHeld > 0) {
-      const cls = c.unrealizedVsBasis >= 0 ? 'pos' : 'neg';
-      const label = c.unrealizedVsBasis >= 0 ? 'Unrealized gain on shares' : 'Unrealized loss on shares';
-      detailHtml += `<span>${label} <strong class="${cls}">${fmtMoney(c.unrealizedVsBasis, { sign: true })}</strong></span>`;
-      if (c.unrealizedVsBasis < 0) {
-        const offset = c.totalPremium + c.unrealizedVsBasis;
-        const offsetCls = offset >= 0 ? 'pos' : 'neg';
-        detailHtml += `<span>${offset >= 0 ? 'Premiums fully offset the loss' : 'Premiums partially offset'} <strong class="${offsetCls}">(${fmtMoney(offset, { sign: true })} net)</strong></span>`;
+    if (isAll) {
+      heroLabel.textContent = 'Net Position';
+      mainNum = c.netPosition;
+      mainPositive = c.netPosition >= 0;
+      detailHtml += `<span>Premiums collected <strong class="pos">${fmtMoney(c.totalPremium)}</strong></span>`;
+      if (c.sharesHeld > 0) {
+        const cls = c.unrealizedVsBasis >= 0 ? 'pos' : 'neg';
+        const label = c.unrealizedVsBasis >= 0 ? 'Unrealized gain on shares' : 'Unrealized loss on shares';
+        detailHtml += `<span>${label} <strong class="${cls}">${fmtMoney(c.unrealizedVsBasis, { sign: true })}</strong></span>`;
+        if (c.unrealizedVsBasis < 0) {
+          const offset = c.totalPremium + c.unrealizedVsBasis;
+          const offsetCls = offset >= 0 ? 'pos' : 'neg';
+          detailHtml += `<span>${offset >= 0 ? 'Premiums fully offset the loss' : 'Premiums partially offset'} <strong class="${offsetCls}">(${fmtMoney(offset, { sign: true })} net)</strong></span>`;
+        }
+      } else {
+        detailHtml += `<span class="muted">No shares currently held</span>`;
       }
     } else {
-      detailHtml += `<span class="muted">No shares currently held</span>`;
+      heroLabel.textContent = `Period Premium — ${c.range.label}`;
+      mainNum = c.rangeTotalPremium;
+      mainPositive = c.rangeTotalPremium >= 0;
+      detailHtml += `<span><strong>${c.rangeOptionCount}</strong> option trades</span>`;
+      detailHtml += `<span>Puts <strong class="pos">${fmtMoney(c.rangePutsPremium)}</strong></span>`;
+      detailHtml += `<span>Calls <strong class="pos">${fmtMoney(c.rangeCallsPremium)}</strong></span>`;
+      if (c.rangeWinRate !== null) {
+        detailHtml += `<span>Win rate <strong>${fmtPct(c.rangeWinRate)}</strong></span>`;
+      }
     }
+    heroValue.textContent = fmtMoney(mainNum, { sign: true });
+    heroValue.classList.toggle('positive', mainPositive);
+    heroValue.classList.toggle('negative', !mainPositive);
+    hero.classList.toggle('positive', mainPositive);
+    hero.classList.toggle('negative', !mainPositive);
     heroDetail.innerHTML = detailHtml;
 
-    // Stats
+    // Stats — always current snapshot, independent of range
     document.getElementById('stat-shares').textContent = fmtNum(c.sharesHeld);
     document.getElementById('stat-shares-sub').textContent =
       c.sharesHeld > 0 ? `Current value ${fmtMoney(c.currentValue)}` : 'No shares held';
@@ -910,13 +1070,34 @@
     const priceInput = document.getElementById('current-price');
     if (document.activeElement !== priceInput) priceInput.value = state.currentPrice ?? '';
 
-    // Premium grid
-    document.getElementById('pm-total').textContent = fmtMoney(c.totalPremium);
-    document.getElementById('pm-puts').textContent = fmtMoney(c.putsPremium);
-    document.getElementById('pm-calls').textContent = fmtMoney(c.callsPremium);
-    document.getElementById('pm-avg').textContent = c.tradeCount > 0 ? fmtMoney(c.avgPremium) : '—';
-    document.getElementById('pm-winrate').textContent = c.winRate !== null ? fmtPct(c.winRate) : '—';
-    document.getElementById('pm-assigned').textContent = fmtNum(c.timesAssigned);
+    // Premium grid — uses range data when a range is selected
+    const useTotal     = isAll ? c.totalPremium    : c.rangeTotalPremium;
+    const usePuts      = isAll ? c.putsPremium     : c.rangePutsPremium;
+    const useCalls     = isAll ? c.callsPremium    : c.rangeCallsPremium;
+    const useAvg       = isAll ? c.avgPremium      : c.rangeAvgPremium;
+    const useWin       = isAll ? c.winRate         : c.rangeWinRate;
+    const useAssigned  = isAll ? c.timesAssigned   : c.rangeAssigned;
+    const useCount     = isAll ? c.optionTradeCount: c.rangeOptionCount;
+    document.getElementById('pm-total').textContent = fmtMoney(useTotal);
+    document.getElementById('pm-puts').textContent = fmtMoney(usePuts);
+    document.getElementById('pm-calls').textContent = fmtMoney(useCalls);
+    document.getElementById('pm-avg').textContent = useCount > 0 ? fmtMoney(useAvg) : '—';
+    document.getElementById('pm-winrate').textContent = useWin !== null ? fmtPct(useWin) : '—';
+    document.getElementById('pm-assigned').textContent = fmtNum(useAssigned);
+    const pmHeader = document.querySelector('.premium-card-header');
+    if (pmHeader) pmHeader.textContent = isAll ? 'Premium & Performance' : `Premium & Performance — ${c.range.label}`;
+
+    // Stale-open review banner
+    const today = new Date().toISOString().slice(0, 10);
+    const stale = (state.trades || []).filter(t =>
+      (t.type === 'put' || t.type === 'call') && t.status === 'open' && t.expiration && t.expiration < today);
+    const reviewBanner = document.getElementById('review-banner');
+    if (stale.length > 0) {
+      document.getElementById('review-count').textContent = stale.length;
+      reviewBanner.classList.remove('hidden');
+    } else {
+      reviewBanner.classList.add('hidden');
+    }
 
     // Table
     renderTable();
@@ -932,12 +1113,16 @@
       tbody.innerHTML = '<tr class="empty-row"><td colspan="9">No trades yet. Click <strong>+ New Trade</strong> above or Import CSV.</td></tr>';
       return;
     }
+    const today = new Date().toISOString().slice(0, 10);
     tbody.innerHTML = trades.map(t => {
       const isShare = t.type === 'share_buy' || t.type === 'share_sell';
+      const isOption = t.type === 'put' || t.type === 'call';
+      const isOpen = isOption && t.status === 'open';
+      const isStale = isOpen && t.expiration && t.expiration < today;
       const typeLabel = isShare
         ? (t.type === 'share_buy' ? 'BUY SHARES' : 'SELL SHARES')
         : t.type.toUpperCase();
-      let pl, plDisplay;
+      let plDisplay;
       if (isShare) {
         const total = (t.strike || 0) * (t.contracts || 0);
         plDisplay = `<span class="muted">${fmtMoney(total)}</span>`;
@@ -945,11 +1130,15 @@
         const shares = (t.contracts || 0) * 100;
         const grossPrem = (t.premium || 0) * shares;
         const buyback = (t.closeCost || 0) * shares;
-        pl = grossPrem - buyback;
+        const pl = grossPrem - buyback;
         plDisplay = `<span class="pos">${fmtMoney(pl, { sign: true })}</span>`;
       }
+      const quickActions = isOpen
+        ? `<button class="btn-expire" data-expire="${t.id}" title="Mark as expired worthless">Expire</button>
+           <button class="btn-assign" data-assign="${t.id}" title="Mark as assigned">Assign</button>`
+        : '';
       return `
-        <tr>
+        <tr class="${isStale ? 'stale' : ''}">
           <td>${fmtDate(t.date)}</td>
           <td><span class="type-${t.type}">${typeLabel}</span></td>
           <td>${fmtMoney(t.strike)}</td>
@@ -959,6 +1148,7 @@
           <td>${isShare ? '<span class="status-badge status-closed">filled</span>' : `<span class="status-badge status-${t.status}">${t.status}</span>`}</td>
           <td>${plDisplay}</td>
           <td class="row-actions">
+            ${quickActions}
             <button class="ghost" data-edit="${t.id}">Edit</button>
             <button class="ghost" data-delete="${t.id}">Del</button>
           </td>
@@ -968,10 +1158,31 @@
 
     tbody.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => editTrade(b.dataset.edit)));
     tbody.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => deleteTrade(b.dataset.delete)));
+    tbody.querySelectorAll('[data-expire]').forEach(b => b.addEventListener('click', () => setStatus(b.dataset.expire, 'expired')));
+    tbody.querySelectorAll('[data-assign]').forEach(b => b.addEventListener('click', () => setStatus(b.dataset.assign, 'assigned')));
+  }
+
+  function setStatus(id, status) {
+    const t = state.trades.find(x => x.id === id);
+    if (!t) return;
+    t.status = status;
+    state.isSample = false;
+    saveState();
+    render();
   }
 
   function renderCharts() {
-    const trades = [...(state.trades || [])].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    const range = getActiveRange();
+    const inRange = (d) => {
+      if (!d) return false;
+      if (range.from && d < range.from) return false;
+      if (range.to && d > range.to) return false;
+      return true;
+    };
+    const trades = [...(state.trades || [])]
+      .filter(t => (t.type === 'put' || t.type === 'call')
+                && (range.from || range.to ? inRange(t.date) : true))
+      .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
     // Bucket by month
     const monthly = {};
@@ -1359,6 +1570,33 @@
       pendingImport = [];
       csvModal.classList.remove('open');
     }
+  });
+
+  // -------- Date range bar --------
+  document.querySelectorAll('.range-bar button.range').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.dateRange = btn.dataset.range;
+      saveState();
+      render();
+    });
+  });
+  document.getElementById('range-from').addEventListener('change', e => {
+    state.customFrom = e.target.value;
+    state.dateRange = 'custom';
+    saveState();
+    render();
+  });
+  document.getElementById('range-to').addEventListener('change', e => {
+    state.customTo = e.target.value;
+    state.dateRange = 'custom';
+    saveState();
+    render();
+  });
+
+  // -------- Review banner --------
+  document.getElementById('review-scroll').addEventListener('click', () => {
+    const firstStale = document.querySelector('tbody tr.stale');
+    if (firstStale) firstStale.scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
 
   // -------- Initial render --------
