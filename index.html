@@ -558,19 +558,19 @@
         <div class="stat-value" id="pm-assigned">0</div>
       </div>
       <div class="premium-cell">
-        <div class="stat-label" title="Premium received / total capital tied up on cash-secured puts">Put ROI</div>
-        <div class="stat-value" id="pm-roi">—</div>
-        <div class="stat-sub" id="pm-roi-sub">on put collateral</div>
+        <div class="stat-label" title="Premium income + realized share gains + paper P&L on held shares − open option liability">Strategy Return</div>
+        <div class="stat-value" id="pm-return">$0</div>
+        <div class="stat-sub" id="pm-return-sub">all-in cumulative</div>
       </div>
       <div class="premium-cell">
-        <div class="stat-label" title="Time-weighted return: each put's premium / capital × days, then annualized">Annualized</div>
-        <div class="stat-value" id="pm-roi-annual">—</div>
-        <div class="stat-sub">put capital efficiency</div>
+        <div class="stat-label" title="Total return / (capital × days) × 365 — covers put collateral AND share basis, with call premium and locked-in share gains in the numerator">Annualized</div>
+        <div class="stat-value" id="pm-annualized">—</div>
+        <div class="stat-sub" id="pm-annualized-sub">on capital deployed</div>
       </div>
       <div class="premium-cell">
-        <div class="stat-label">Capital at Risk</div>
+        <div class="stat-label" title="Open put collateral + cost basis of shares currently held">Capital Deployed</div>
         <div class="stat-value" id="pm-capital">$0</div>
-        <div class="stat-sub" id="pm-capital-sub">on open puts</div>
+        <div class="stat-sub" id="pm-capital-sub">puts + shares now</div>
       </div>
     </div>
   </section>
@@ -998,10 +998,17 @@
     let rangePutCapital = 0;
     let rangePutCapitalTime = 0;
     const todayISO = new Date().toISOString().slice(0, 10);
-    const dayDiff = (open, close) => {
-      const o = new Date((open || todayISO) + 'T00:00:00').getTime();
-      const c = new Date((close || todayISO) + 'T00:00:00').getTime();
-      return Math.max(1, Math.round((c - o) / 86400000));
+    const DAY_MS = 86400000;
+    const msFor = (s) => new Date((s || todayISO) + 'T00:00:00').getTime();
+    const dayDiff = (open, close) => Math.max(1, Math.round((msFor(close) - msFor(open)) / DAY_MS));
+    const rangeFromMs = range.from ? msFor(range.from) : -Infinity;
+    const rangeToMs   = range.to   ? msFor(range.to)   :  Infinity;
+    const rangeOverlapDays = (open, close) => {
+      if (!range.from && !range.to) return dayDiff(open, close);
+      const start = Math.max(msFor(open), rangeFromMs);
+      const end   = Math.min(msFor(close), rangeToMs);
+      if (end <= start) return 0;
+      return Math.max(0, Math.round((end - start) / DAY_MS));
     };
 
     for (const t of allTrades) {
@@ -1035,9 +1042,12 @@
           putCapitalTotal += capital;
           putCapitalTimeTotal += capital * days;
           if (t.status === 'open') putCapitalOpenNow += capital;
-          if (inR) {
+          // For range view: count any portion of this put's lifetime that
+          // overlaps the range (not just puts opened in range).
+          const rDays = rangeOverlapDays(t.date, closeFor);
+          if (rDays > 0) {
             rangePutCapital += capital;
-            rangePutCapitalTime += capital * days;
+            rangePutCapitalTime += capital * rDays;
           }
         }
       }
@@ -1095,6 +1105,7 @@
 
     let lots = [];
     let shortShares = 0;
+    let realizedShareGain = 0; // locked-in P&L from sold shares and called-away shares
     function addLot(shares, basis) {
       if (shares <= 0) return;
       if (shortShares > 0) {
@@ -1104,18 +1115,44 @@
       }
       if (shares > 0) lots.push({ shares, basis });
     }
-    function subLots(shares) {
+    function subLots(shares, salePrice) {
       let remaining = shares;
       while (remaining > 0 && lots.length > 0) {
         const lot = lots[0];
+        const taken = Math.min(lot.shares, remaining);
+        // For shares sold/called away, the locked-in P&L is sale - basis.
+        // Sale price for call-assigned = strike + premium received (already
+        // baked into perShare upstream). Share_sell uses the sell price.
+        realizedShareGain += (salePrice - lot.basis) * taken;
         if (lot.shares <= remaining) { remaining -= lot.shares; lots.shift(); }
         else { lot.shares -= remaining; remaining = 0; }
       }
       if (remaining > 0) shortShares += remaining;
     }
+    // Walk events, accumulating share capital-days (cost basis × days held)
+    // along the way. This is the time-weighted capital tied up in shares —
+    // needed for a blended ROI that includes shares, not just put collateral.
+    const currentShareCapital = () => lots.reduce((s, l) => s + l.shares * l.basis, 0);
+    const daysBetween = (a, b) => Math.max(0, Math.round((msFor(b) - msFor(a)) / DAY_MS));
+
+    let totalShareCapitalDays = 0;
+    let rangeShareCapitalDays = 0;
+    let prevDate = null;
     for (const e of events) {
+      if (prevDate && prevDate !== e.date) {
+        const cap = currentShareCapital();
+        totalShareCapitalDays += cap * daysBetween(prevDate, e.date);
+        rangeShareCapitalDays += cap * rangeOverlapDays(prevDate, e.date);
+      }
       if (e.kind === 'add') addLot(e.shares, e.perShare);
-      else subLots(e.shares);
+      else subLots(e.shares, e.perShare);
+      prevDate = e.date;
+    }
+    // From last event up to today: currently held shares' capital
+    if (prevDate) {
+      const cap = currentShareCapital();
+      totalShareCapitalDays += cap * daysBetween(prevDate, todayISO);
+      rangeShareCapitalDays += cap * rangeOverlapDays(prevDate, todayISO);
     }
     // NOTE: wash sale rule adjustments (disallowed losses rolled into the
     // basis of replacement shares acquired within ±30 days) are NOT modeled
@@ -1138,11 +1175,16 @@
     const unrealizedVsBasis = sharesHeld > 0 ? currentValue - basisCost : 0;
     // Premium-adjusted basis = avg basis minus per-share premium attribution
     const adjBasis = sharesHeld > 0 ? avgBasis - (totalPremium / sharesHeld) : 0;
-    // Net position: premiums collected + unrealized P&L on currently held shares
-    // Net position: collected premium + unrealized P&L on shares − the MTM
-    // liability of any open short options (what you'd have to absorb if
-    // they were exercised at the current price).
-    const netPosition = totalPremium + unrealizedVsBasis - openOptionLiability;
+    // Net position = everything the wheel has produced:
+    //   • Premium income (puts + calls + any closed-out net)
+    //   • Realized share gains from past sales and call assignments
+    //   • Unrealized P&L on currently held shares
+    //   • Minus MTM liability on still-open short options
+    // Capital deployed at this moment = open put collateral + cost basis of
+    // shares currently held.
+    const capitalDeployedNow = putCapitalOpenNow + (sharesHeld * avgBasis);
+    const totalReturn = totalPremium + realizedShareGain + unrealizedVsBasis - openOptionLiability;
+    const netPosition = totalReturn;
 
     let winsCount = 0, lossesCount = 0;
     let rangeWins = 0, rangeLosses = 0;
@@ -1181,6 +1223,18 @@
     const rangePutROIAnnualized = rangePutCapitalTime > 0
       ? (rangePutsPremium / rangePutCapitalTime) * 365 : 0;
 
+    // Annualized strategy return — total return / capital-time × 365.
+    // Numerator includes call premium, locked-in share gains, and the
+    // current paper P&L on held shares. Denominator counts every dollar
+    // that's been tied up (put collateral or share basis) across every
+    // day it was deployed, so the rate reflects actual capital efficiency.
+    const totalCapitalDays = putCapitalTimeTotal + totalShareCapitalDays;
+    const strategyAnnualized = totalCapitalDays > 0
+      ? (totalReturn / totalCapitalDays) * 365 : 0;
+    const rangeTotalCapitalDays = rangePutCapitalTime + rangeShareCapitalDays;
+    const rangeBlendedAnnualized = rangeTotalCapitalDays > 0
+      ? (rangeTotalPremium / rangeTotalCapitalDays) * 365 : 0;
+
     return {
       // Current snapshot — never filtered by range
       sharesHeld, basisCost, avgBasis, avgBasisFifo, isOverridden,
@@ -1191,9 +1245,14 @@
       winRate, avgPremium, netPosition,
       tradeCount: allTrades.length, optionTradeCount,
       // Capital deployed + ROI on puts
-      putCapitalTotal, putCapitalOpenNow, putROI, putROIAnnualized,
+      putCapitalTotal, putCapitalTimeTotal, putCapitalOpenNow, putROI, putROIAnnualized,
+      rangePutCapital, rangePutCapitalTime, rangePutROI, rangePutROIAnnualized,
       // Mark-to-market on open short options
       openPutLiability, openCallLiability, openOptionLiability,
+      // Strategy-wide return (premium + realized + unrealized − open option risk)
+      realizedShareGain, totalReturn, capitalDeployedNow,
+      totalShareCapitalDays, totalCapitalDays, strategyAnnualized,
+      rangeShareCapitalDays, rangeTotalCapitalDays, rangeBlendedAnnualized,
       // Win/loss counts
       winsCount, lossesCount, rangeWins, rangeLosses,
       // Range-filtered tallies
@@ -1261,6 +1320,11 @@
       mainNum = c.netPosition;
       mainPositive = c.netPosition >= 0;
       detailHtml += `<span>Premiums collected <strong class="pos">${fmtMoney(c.totalPremium)}</strong></span>`;
+      if (c.realizedShareGain !== 0) {
+        const cls = c.realizedShareGain >= 0 ? 'pos' : 'neg';
+        const label = c.realizedShareGain >= 0 ? 'Realized share gain' : 'Realized share loss';
+        detailHtml += `<span>${label} <strong class="${cls}">${fmtMoney(c.realizedShareGain, { sign: true })}</strong></span>`;
+      }
       if (c.sharesHeld > 0) {
         const cls = c.unrealizedVsBasis >= 0 ? 'pos' : 'neg';
         const label = c.unrealizedVsBasis >= 0 ? 'Unrealized gain on shares' : 'Unrealized loss on shares';
@@ -1269,7 +1333,7 @@
       if (c.openOptionLiability > 0) {
         detailHtml += `<span>Open option risk <strong class="neg">${fmtMoney(-c.openOptionLiability, { sign: true })}</strong></span>`;
       }
-      if (c.sharesHeld === 0 && c.openOptionLiability === 0) {
+      if (c.sharesHeld === 0 && c.openOptionLiability === 0 && c.realizedShareGain === 0) {
         detailHtml += `<span class="muted">No shares or open options</span>`;
       }
     } else {
@@ -1333,19 +1397,37 @@
     document.getElementById('pm-winrate').textContent = useWin !== null ? fmtPct(useWin) : '—';
     document.getElementById('pm-assigned').textContent = fmtNum(useAssigned);
 
-    // Put ROI / Annualized / Capital deployed
-    const useROI       = isAll ? c.putROI           : c.rangePutROI;
-    const useROIAnn    = isAll ? c.putROIAnnualized : c.rangePutROIAnnualized;
-    const useCapTotal  = isAll ? c.putCapitalTotal  : c.rangePutCapital;
-    document.getElementById('pm-roi').textContent = useCapTotal > 0 ? fmtPct(useROI) : '—';
-    const mtmNote = isAll && c.openPutLiability > 0 ? ` (MTM −${fmtMoney(c.openPutLiability)})` : '';
-    document.getElementById('pm-roi-sub').textContent = useCapTotal > 0
-      ? `${fmtMoney(isAll ? c.putsPremium : c.rangePutsPremium)} / ${fmtMoney(useCapTotal)}${mtmNote}`
-      : 'on put collateral';
-    document.getElementById('pm-roi-annual').textContent = useCapTotal > 0 ? fmtPct(useROIAnn) : '—';
-    document.getElementById('pm-capital').textContent = fmtMoney(c.putCapitalOpenNow);
+    // Strategy Return / Annualized / Capital Deployed.
+    // For the in-range view, "return" is the premium earned in the window
+    // (we don't try to attribute share gains and unrealized P&L to a date
+    // window — those are a snapshot, not a period flow).
+    const useReturn = isAll ? c.totalReturn : c.rangeTotalPremium;
+    const useAnn    = isAll ? c.strategyAnnualized : c.rangeBlendedAnnualized;
+    const useCapDays = isAll ? c.totalCapitalDays : c.rangeTotalCapitalDays;
+    const returnEl = document.getElementById('pm-return');
+    returnEl.textContent = fmtMoney(useReturn, { sign: true });
+    returnEl.className = 'stat-value ' + (useReturn >= 0 ? 'pos' : 'neg');
+    if (isAll) {
+      const parts = [];
+      parts.push(`prem ${fmtMoney(c.totalPremium)}`);
+      if (c.realizedShareGain !== 0)  parts.push(`${c.realizedShareGain >= 0 ? '+' : ''}${fmtMoney(c.realizedShareGain)} realized`);
+      if (c.unrealizedVsBasis !== 0)  parts.push(`${c.unrealizedVsBasis >= 0 ? '+' : ''}${fmtMoney(c.unrealizedVsBasis)} unreal`);
+      if (c.openOptionLiability > 0)  parts.push(`−${fmtMoney(c.openOptionLiability)} open risk`);
+      document.getElementById('pm-return-sub').textContent = parts.join(' · ');
+    } else {
+      document.getElementById('pm-return-sub').textContent = `premium for ${c.range.label}`;
+    }
+    document.getElementById('pm-annualized').textContent = useCapDays > 0 ? fmtPct(useAnn) : '—';
+    document.getElementById('pm-annualized-sub').textContent = useCapDays > 0
+      ? `${fmtMoney(useCapDays / 365)} capital-yr deployed`
+      : 'on capital deployed';
+
+    document.getElementById('pm-capital').textContent = fmtMoney(c.capitalDeployedNow);
+    const capParts = [];
+    if (c.putCapitalOpenNow > 0)             capParts.push(`${fmtMoney(c.putCapitalOpenNow)} put collateral`);
+    if (c.sharesHeld * c.avgBasis > 0)       capParts.push(`${fmtMoney(c.sharesHeld * c.avgBasis)} in ${fmtNum(c.sharesHeld)} sh`);
     document.getElementById('pm-capital-sub').textContent =
-      c.putCapitalOpenNow > 0 ? `secured by ${fmtNum(c.putCapitalOpenNow / 100)} sh equivalent` : 'no open puts';
+      capParts.length > 0 ? capParts.join(' + ') : 'no positions';
     const pmHeader = document.querySelector('.premium-card-header');
     if (pmHeader) pmHeader.textContent = isAll ? 'Premium & Performance' : `Premium & Performance — ${c.range.label}`;
 
