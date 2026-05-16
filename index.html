@@ -972,6 +972,29 @@
       }
     }
 
+    // Mark-to-market the still-open short options against the current stock
+    // price. A sold put is ITM if current < strike — the user would have to
+    // buy back (or accept assignment) at a loss of (strike − current) per
+    // share. A sold call is ITM if current > strike — they'd have to give up
+    // shares at strike when they're worth more. Premium received on each
+    // open option offsets its intrinsic loss.
+    let openPutLiability = 0;
+    let openCallLiability = 0;
+    const curPx = state.currentPrice || 0;
+    if (curPx > 0) {
+      for (const t of allTrades) {
+        if ((t.type === 'put' || t.type === 'call') && t.status === 'open') {
+          const s = (t.contracts || 0) * 100;
+          if (t.type === 'put') {
+            openPutLiability += Math.max(0, (t.strike || 0) - curPx) * s;
+          } else {
+            openCallLiability += Math.max(0, curPx - (t.strike || 0)) * s;
+          }
+        }
+      }
+    }
+    const openOptionLiability = openPutLiability + openCallLiability;
+
     // Build share-movement events with IRS-style per-share values:
     //   • put assigned   → basis     = strike − premium received
     //   • call assigned  → saleprice = strike + premium received
@@ -1045,7 +1068,10 @@
     // Premium-adjusted basis = avg basis minus per-share premium attribution
     const adjBasis = sharesHeld > 0 ? avgBasis - (totalPremium / sharesHeld) : 0;
     // Net position: premiums collected + unrealized P&L on currently held shares
-    const netPosition = totalPremium + unrealizedVsBasis;
+    // Net position: collected premium + unrealized P&L on shares − the MTM
+    // liability of any open short options (what you'd have to absorb if
+    // they were exercised at the current price).
+    const netPosition = totalPremium + unrealizedVsBasis - openOptionLiability;
 
     const closedTrades = expiredCount + closedCount + assignedCount;
     const winRate = closedTrades > 0 ? expiredCount / closedTrades : null;
@@ -1056,12 +1082,15 @@
     const rangeAvgPremium = rangeOptionCount > 0 ? rangeTotalPremium / rangeOptionCount : 0;
 
     // Put ROI — return on the capital you had to hold as collateral for
-    // cash-secured puts. putROI is the blended % return across all puts.
-    // putROIAnnualized accounts for how long each put tied up that capital,
-    // so a 1% put held 14 days annualizes much higher than a 1% put held 60.
-    const putROI = putCapitalTotal > 0 ? putsPremium / putCapitalTotal : 0;
+    // cash-secured puts. Premium tally is mark-to-market: realized premium
+    // on closed/expired/assigned legs PLUS open puts' premium minus their
+    // current intrinsic loss. This way an open \$23 put with the stock at
+    // \$15 doesn't show as pure profit — it shows the loss you'd take if
+    // it assigned now.
+    const putsPremiumMTM = putsPremium - openPutLiability;
+    const putROI = putCapitalTotal > 0 ? putsPremiumMTM / putCapitalTotal : 0;
     const putROIAnnualized = putCapitalTimeTotal > 0
-      ? (putsPremium / putCapitalTimeTotal) * 365 : 0;
+      ? (putsPremiumMTM / putCapitalTimeTotal) * 365 : 0;
     const rangePutROI = rangePutCapital > 0 ? rangePutsPremium / rangePutCapital : 0;
     const rangePutROIAnnualized = rangePutCapitalTime > 0
       ? (rangePutsPremium / rangePutCapitalTime) * 365 : 0;
@@ -1077,6 +1106,8 @@
       tradeCount: allTrades.length, optionTradeCount,
       // Capital deployed + ROI on puts
       putCapitalTotal, putCapitalOpenNow, putROI, putROIAnnualized,
+      // Mark-to-market on open short options
+      openPutLiability, openCallLiability, openOptionLiability,
       // Range-filtered tallies
       range,
       rangeTotalPremium, rangePutsPremium, rangeCallsPremium,
@@ -1146,13 +1177,12 @@
         const cls = c.unrealizedVsBasis >= 0 ? 'pos' : 'neg';
         const label = c.unrealizedVsBasis >= 0 ? 'Unrealized gain on shares' : 'Unrealized loss on shares';
         detailHtml += `<span>${label} <strong class="${cls}">${fmtMoney(c.unrealizedVsBasis, { sign: true })}</strong></span>`;
-        if (c.unrealizedVsBasis < 0) {
-          const offset = c.totalPremium + c.unrealizedVsBasis;
-          const offsetCls = offset >= 0 ? 'pos' : 'neg';
-          detailHtml += `<span>${offset >= 0 ? 'Premiums fully offset the loss' : 'Premiums partially offset'} <strong class="${offsetCls}">(${fmtMoney(offset, { sign: true })} net)</strong></span>`;
-        }
-      } else {
-        detailHtml += `<span class="muted">No shares currently held</span>`;
+      }
+      if (c.openOptionLiability > 0) {
+        detailHtml += `<span>Open option risk <strong class="neg">${fmtMoney(-c.openOptionLiability, { sign: true })}</strong></span>`;
+      }
+      if (c.sharesHeld === 0 && c.openOptionLiability === 0) {
+        detailHtml += `<span class="muted">No shares or open options</span>`;
       }
     } else {
       heroLabel.textContent = `Period Premium — ${c.range.label}`;
@@ -1220,8 +1250,9 @@
     const useROIAnn    = isAll ? c.putROIAnnualized : c.rangePutROIAnnualized;
     const useCapTotal  = isAll ? c.putCapitalTotal  : c.rangePutCapital;
     document.getElementById('pm-roi').textContent = useCapTotal > 0 ? fmtPct(useROI) : '—';
+    const mtmNote = isAll && c.openPutLiability > 0 ? ` (MTM −${fmtMoney(c.openPutLiability)})` : '';
     document.getElementById('pm-roi-sub').textContent = useCapTotal > 0
-      ? `${fmtMoney(isAll ? c.putsPremium : c.rangePutsPremium)} / ${fmtMoney(useCapTotal)} deployed`
+      ? `${fmtMoney(isAll ? c.putsPremium : c.rangePutsPremium)} / ${fmtMoney(useCapTotal)}${mtmNote}`
       : 'on put collateral';
     document.getElementById('pm-roi-annual').textContent = useCapTotal > 0 ? fmtPct(useROIAnn) : '—';
     document.getElementById('pm-capital').textContent = fmtMoney(c.putCapitalOpenNow);
@@ -1282,10 +1313,22 @@
         const shares = (t.contracts || 0) * 100;
         const grossPrem = (t.premium || 0) * shares;
         const buyback = (t.closeCost || 0) * shares;
-        const pl = grossPrem - buyback;
+        const realizedPL = grossPrem - buyback;
+
+        // For OPEN options, mark to market against the current price: subtract
+        // intrinsic value so the cell shows "what would this trade net me if
+        // it settled at the current stock price."
+        let pl = realizedPL;
+        let intrinsic = 0;
+        const cp = state.currentPrice || 0;
+        if (t.status === 'open' && cp > 0) {
+          if (t.type === 'put')      intrinsic = Math.max(0, (t.strike || 0) - cp) * shares;
+          else if (t.type === 'call') intrinsic = Math.max(0, cp - (t.strike || 0)) * shares;
+          pl = realizedPL - intrinsic;
+        }
+
         let extra = '';
         if (t.type === 'put') {
-          // ROI on collateral for the put. Capital = strike × shares.
           const capital = (t.strike || 0) * shares;
           if (capital > 0) {
             const roiPct = (pl / capital) * 100;
@@ -1297,7 +1340,11 @@
             extra = `<div class="roi-meta">${roiPct.toFixed(1)}% · ${days}d · ${annual.toFixed(0)}% yr</div>`;
           }
         }
-        plDisplay = `<span class="pos">${fmtMoney(pl, { sign: true })}</span>${extra}`;
+        if (intrinsic > 0) {
+          extra = `<div class="roi-meta">${fmtMoney(grossPrem)} prem − ${fmtMoney(intrinsic)} loss @ ${fmtMoney(cp)}</div>` + extra;
+        }
+        const sign = pl >= 0 ? 'pos' : 'neg';
+        plDisplay = `<span class="${sign}">${fmtMoney(pl, { sign: true })}</span>${extra}`;
       }
       const quickActions = isOpen
         ? `<button class="btn-expire" data-expire="${t.id}" title="Mark as expired worthless">Expire</button>
