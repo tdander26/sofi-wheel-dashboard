@@ -283,9 +283,11 @@
     white-space: nowrap;
   }
   tbody td {
-    padding: 12px; border-bottom: 1px solid var(--border);
+    padding: 14px 12px; border-bottom: 1px solid var(--border);
     white-space: nowrap;
+    vertical-align: top;
   }
+  tbody td.row-actions { padding-top: 12px; }
   tbody tr:last-child td { border-bottom: none; }
   tbody tr:hover { background: rgba(255,255,255,0.02); }
   tbody tr.section-header td {
@@ -308,6 +310,50 @@
   tbody tr.stale { background: rgba(248,180,77,0.06); }
   tbody tr.stale:hover { background: rgba(248,180,77,0.10); }
   tbody tr.stale td:first-child { border-left: 2px solid var(--accent); }
+  tbody tr.loss-row { background: rgba(248,113,113,0.05); }
+  tbody tr.loss-row:hover { background: rgba(248,113,113,0.10); }
+  tbody tr.loss-row td:first-child { border-left: 2px solid var(--red); }
+  .wl-chip {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .wl-win  { background: rgba(52,211,153,0.12); color: var(--green); }
+  .wl-loss { background: rgba(248,113,113,0.12); color: var(--red); }
+  .wl-manual { font-size: 9px; opacity: 0.9; }
+  .btn-wl {
+    background: transparent;
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    padding: 3px 6px;
+    font-size: 11px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  .btn-wl:hover { background: var(--surface-2); color: var(--text); }
+  .filter-chips {
+    float: right;
+    display: inline-flex;
+    gap: 4px;
+  }
+  .chip {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 2px 9px;
+    font-size: 10px;
+    border-radius: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .chip:hover { background: var(--surface-2); color: var(--text); }
+  .chip.active { background: var(--accent-dim); color: var(--accent); border-color: rgba(245,179,66,0.35); }
   .btn-expire {
     background: rgba(52,211,153,0.10); color: var(--green);
     border: 1px solid rgba(52,211,153,0.25);
@@ -850,7 +896,7 @@
     if (!s.customFrom) s.customFrom = '';
     if (!s.customTo)   s.customTo = '';
     if (s.basisOverride === undefined) s.basisOverride = null;
-    // Backfill closeDate on older saved trades (added in this version)
+    // Backfill closeDate / winOverride on older saved trades
     if (Array.isArray(s.trades)) {
       for (const t of s.trades) {
         if (t.closeDate === undefined) {
@@ -858,14 +904,39 @@
           else if (t.status === 'closed') t.closeDate = t.date || null;
           else t.closeDate = null;
         }
+        if (t.winOverride === undefined) t.winOverride = null;
       }
     }
+    if (!s.tradeFilter) s.tradeFilter = 'all';
     return s;
   }
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+  // Premium-positive win definition for wheel trading:
+  //   - Expired worthless → win (kept full premium)
+  //   - Assigned → win on the option leg (kept full premium; share P&L is
+  //     tracked separately via FIFO basis)
+  //   - Closed → win if premium > buyback, loss if not
+  //   - Open → not yet decided
+  //   - Manual override (t.winOverride) takes priority
+  // Returns 'win', 'loss', or null (undecided / N/A).
+  function tradeOutcome(t) {
+    if (t.winOverride === 'win') return 'win';
+    if (t.winOverride === 'loss') return 'loss';
+    if (t.type !== 'put' && t.type !== 'call') return null;
+    if (t.status === 'open') return null;
+    if (t.status === 'expired') return 'win';
+    if (t.status === 'assigned') return 'win';
+    if (t.status === 'closed') {
+      const s = (t.contracts || 0) * 100;
+      const netPL = ((t.premium || 0) - (t.closeCost || 0)) * s;
+      return netPL > 0 ? 'win' : 'loss';
+    }
+    return null;
+  }
 
   // -------- Compute derived values --------
   // Walks events chronologically maintaining FIFO share lots so the cost basis
@@ -1073,12 +1144,27 @@
     // they were exercised at the current price).
     const netPosition = totalPremium + unrealizedVsBasis - openOptionLiability;
 
-    const closedTrades = expiredCount + closedCount + assignedCount;
-    const winRate = closedTrades > 0 ? expiredCount / closedTrades : null;
+    let winsCount = 0, lossesCount = 0;
+    let rangeWins = 0, rangeLosses = 0;
+    for (const t of allTrades) {
+      const o = tradeOutcome(t);
+      if (o === 'win')  winsCount++;
+      if (o === 'loss') lossesCount++;
+      if (range.from || range.to) {
+        if (inRange(t.date)) {
+          if (o === 'win')  rangeWins++;
+          if (o === 'loss') rangeLosses++;
+        }
+      } else {
+        if (o === 'win')  rangeWins++;
+        if (o === 'loss') rangeLosses++;
+      }
+    }
+    const winRate = (winsCount + lossesCount) > 0
+      ? winsCount / (winsCount + lossesCount) : null;
+    const rangeWinRate = (rangeWins + rangeLosses) > 0
+      ? rangeWins / (rangeWins + rangeLosses) : null;
     const avgPremium = optionTradeCount > 0 ? totalPremium / optionTradeCount : 0;
-
-    const rangeClosedTrades = rangeExpired + rangeClosed + rangeAssigned;
-    const rangeWinRate = rangeClosedTrades > 0 ? rangeExpired / rangeClosedTrades : null;
     const rangeAvgPremium = rangeOptionCount > 0 ? rangeTotalPremium / rangeOptionCount : 0;
 
     // Put ROI — return on the capital you had to hold as collateral for
@@ -1108,6 +1194,8 @@
       putCapitalTotal, putCapitalOpenNow, putROI, putROIAnnualized,
       // Mark-to-market on open short options
       openPutLiability, openCallLiability, openOptionLiability,
+      // Win/loss counts
+      winsCount, lossesCount, rangeWins, rangeLosses,
       // Range-filtered tallies
       range,
       rangeTotalPremium, rangePutsPremium, rangeCallsPremium,
@@ -1351,7 +1439,8 @@
            <button class="btn-assign" data-assign="${t.id}" title="Mark as assigned">Assign</button>`
         : '';
       // Outcome cell: status badge + close date + (for closed) the buyback cost.
-      // This is what pairs the "open leg" (sell) with the "close leg" of a trade.
+      // Also include a small W/L chip showing whether this trade counts as a
+      // win, loss, or override.
       let outcomeCell;
       if (isShare) {
         outcomeCell = '<span class="status-badge status-closed">filled</span>';
@@ -1363,10 +1452,22 @@
         const closeCost = t.status === 'closed' && t.closeCost != null
           ? `<div class="close-meta">bought back @ ${fmtMoney(t.closeCost)}</div>`
           : '';
-        outcomeCell = `${closeBadge}${closeCost}${closeDate}`;
+        const outcome = tradeOutcome(t);
+        let wlChip = '';
+        if (outcome === 'win')  wlChip = `<span class="wl-chip wl-win${t.winOverride ? ' wl-manual' : ''}">${t.winOverride ? 'WIN (manual)' : 'win'}</span>`;
+        if (outcome === 'loss') wlChip = `<span class="wl-chip wl-loss${t.winOverride ? ' wl-manual' : ''}">${t.winOverride ? 'LOSS (manual)' : 'loss'}</span>`;
+        outcomeCell = `${closeBadge}${closeCost}${closeDate}${wlChip ? `<div>${wlChip}</div>` : ''}`;
       }
+      // Cycle button for win/loss override (auto → loss → win → auto)
+      const overrideBtn = !isShare && t.status !== 'open'
+        ? `<button class="btn-wl" data-wl="${t.id}" title="Cycle: auto → loss → win → auto">${t.winOverride === 'loss' ? '↯L' : t.winOverride === 'win' ? '↑W' : '↻'}</button>`
+        : '';
+      // Row classes
+      const rowClasses = [];
+      if (isStale) rowClasses.push('stale');
+      if (!isShare && t.status !== 'open' && tradeOutcome(t) === 'loss') rowClasses.push('loss-row');
       return `
-        <tr class="${isStale ? 'stale' : ''}">
+        <tr class="${rowClasses.join(' ')}" data-trade-id="${t.id}">
           <td>${fmtDate(t.date)}</td>
           <td><span class="type-${t.type}">${typeLabel}</span></td>
           <td>${fmtMoney(t.strike)}</td>
@@ -1377,6 +1478,7 @@
           <td>${plDisplay}</td>
           <td class="row-actions">
             ${quickActions}
+            ${overrideBtn}
             <button class="ghost" data-edit="${t.id}">Edit</button>
             <button class="ghost" data-delete="${t.id}">Del</button>
           </td>
@@ -1384,8 +1486,25 @@
       `;
     };
 
-    const sectionHeader = (label, count) =>
-      `<tr class="section-header"><td colspan="9">${label} <span class="section-count">${count}</span></td></tr>`;
+    const sectionHeader = (label, count, extra) =>
+      `<tr class="section-header"><td colspan="9">${label} <span class="section-count">${count}</span>${extra || ''}</td></tr>`;
+
+    // Filter history by win/loss/all per state.tradeFilter
+    const filtered = history.filter(t => {
+      if (state.tradeFilter === 'all') return true;
+      const o = tradeOutcome(t);
+      if (state.tradeFilter === 'wins')   return o === 'win';
+      if (state.tradeFilter === 'losses') return o === 'loss';
+      if (state.tradeFilter === 'manual') return t.winOverride != null;
+      return true;
+    });
+
+    const filterChips = `<span class="filter-chips">
+      <button class="chip ${state.tradeFilter==='all'?'active':''}" data-filter="all">All</button>
+      <button class="chip ${state.tradeFilter==='wins'?'active':''}" data-filter="wins">Wins</button>
+      <button class="chip ${state.tradeFilter==='losses'?'active':''}" data-filter="losses">Losses</button>
+      <button class="chip ${state.tradeFilter==='manual'?'active':''}" data-filter="manual">Manual</button>
+    </span>`;
 
     let html = '';
     if (openTrades.length > 0) {
@@ -1393,8 +1512,11 @@
       html += openTrades.map(renderRow).join('');
     }
     if (history.length > 0) {
-      html += sectionHeader('History', history.length);
-      html += history.map(renderRow).join('');
+      const filterLabel = state.tradeFilter === 'all'
+        ? `${history.length}`
+        : `${filtered.length} of ${history.length}`;
+      html += `<tr class="section-header"><td colspan="9">History <span class="section-count">${filterLabel}</span>${filterChips}</td></tr>`;
+      html += filtered.map(renderRow).join('');
     }
     tbody.innerHTML = html;
 
@@ -1402,6 +1524,23 @@
     tbody.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => deleteTrade(b.dataset.delete)));
     tbody.querySelectorAll('[data-expire]').forEach(b => b.addEventListener('click', () => setStatus(b.dataset.expire, 'expired')));
     tbody.querySelectorAll('[data-assign]').forEach(b => b.addEventListener('click', () => setStatus(b.dataset.assign, 'assigned')));
+    tbody.querySelectorAll('[data-wl]').forEach(b => b.addEventListener('click', () => cycleWinLoss(b.dataset.wl)));
+    tbody.querySelectorAll('.chip[data-filter]').forEach(b => b.addEventListener('click', () => {
+      state.tradeFilter = b.dataset.filter;
+      saveState();
+      render();
+    }));
+  }
+
+  function cycleWinLoss(id) {
+    const t = state.trades.find(x => x.id === id);
+    if (!t) return;
+    // null → 'loss' → 'win' → null
+    t.winOverride = t.winOverride == null ? 'loss'
+                   : t.winOverride === 'loss' ? 'win' : null;
+    state.isSample = false;
+    saveState();
+    render();
   }
 
   function setStatus(id, status) {
