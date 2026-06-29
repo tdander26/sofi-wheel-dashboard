@@ -1,0 +1,47 @@
+<svg viewBox="0 0 820 420" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,Arial" font-size="12">
+<text x="60" y="26" font-size="15" font-weight="700" fill="#111">SOFI Wheel — Capital Deployed by Month (Jul 2025–Jun 2026)</text>
+<line x1="60" y1="380.0" x2="800" y2="380.0" stroke="#e5e7eb"/>
+<text x="52" y="384.0" text-anchor="end" fill="#6b7280">$0k</text>
+<line x1="60" y1="297.5" x2="800" y2="297.5" stroke="#e5e7eb"/>
+<text x="52" y="301.5" text-anchor="end" fill="#6b7280">$10k</text>
+<line x1="60" y1="215.0" x2="800" y2="215.0" stroke="#e5e7eb"/>
+<text x="52" y="219.0" text-anchor="end" fill="#6b7280">$20k</text>
+<line x1="60" y1="132.5" x2="800" y2="132.5" stroke="#e5e7eb"/>
+<text x="52" y="136.5" text-anchor="end" fill="#6b7280">$30k</text>
+<line x1="60" y1="50.0" x2="800" y2="50.0" stroke="#e5e7eb"/>
+<text x="52" y="54.0" text-anchor="end" fill="#6b7280">$40k</text>
+<rect x="71.7" y="363.5" width="38.2" height="16.5" fill="#2563eb"/>
+<text x="90.8" y="398" text-anchor="middle" fill="#374151">Jul</text>
+<rect x="133.4" y="361.9" width="38.2" height="18.1" fill="#16a34a"/>
+<text x="152.5" y="398" text-anchor="middle" fill="#374151">Aug</text>
+<rect x="195.0" y="294.2" width="38.2" height="85.8" fill="#2563eb"/>
+<text x="214.2" y="398" text-anchor="middle" fill="#374151">Sep</text>
+<rect x="256.7" y="323.1" width="38.2" height="56.9" fill="#2563eb"/>
+<rect x="256.7" y="250.5" width="38.2" height="72.6" fill="#16a34a"/>
+<text x="275.8" y="398" text-anchor="middle" fill="#374151">Oct</text>
+<rect x="318.4" y="323.1" width="38.2" height="56.9" fill="#2563eb"/>
+<text x="337.5" y="398" text-anchor="middle" fill="#374151">Nov</text>
+<rect x="380.0" y="323.1" width="38.2" height="56.9" fill="#2563eb"/>
+<text x="399.2" y="398" text-anchor="middle" fill="#374151">Dec</text>
+<rect x="441.7" y="226.5" width="38.2" height="153.5" fill="#2563eb"/>
+<text x="460.8" y="398" text-anchor="middle" fill="#374151">Jan</text>
+<rect x="503.4" y="306.6" width="38.2" height="73.4" fill="#2563eb"/>
+<rect x="503.4" y="234.0" width="38.2" height="72.6" fill="#16a34a"/>
+<text x="522.5" y="398" text-anchor="middle" fill="#374151">Feb</text>
+<rect x="565.0" y="162.2" width="38.2" height="217.8" fill="#2563eb"/>
+<rect x="565.0" y="71.4" width="38.2" height="90.8" fill="#16a34a"/>
+<text x="584.2" y="398" text-anchor="middle" fill="#374151">Mar</text>
+<rect x="626.7" y="323.1" width="38.2" height="56.9" fill="#2563eb"/>
+<rect x="626.7" y="232.3" width="38.2" height="90.8" fill="#16a34a"/>
+<text x="645.8" y="398" text-anchor="middle" fill="#374151">Apr</text>
+<rect x="688.4" y="323.1" width="38.2" height="56.9" fill="#2563eb"/>
+<rect x="688.4" y="304.9" width="38.2" height="18.1" fill="#16a34a"/>
+<text x="707.5" y="398" text-anchor="middle" fill="#374151">May</text>
+<rect x="750.0" y="256.2" width="38.2" height="123.8" fill="#2563eb"/>
+<rect x="750.0" y="238.1" width="38.2" height="18.2" fill="#16a34a"/>
+<text x="769.2" y="398" text-anchor="middle" fill="#374151">Jun</text>
+<line x1="60" y1="272.8" x2="800" y2="272.8" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="800" y="266.8" text-anchor="end" fill="#dc2626" font-weight="600">Avg deployed ~$13k</text>
+<rect x="60" y="406" width="11" height="11" fill="#2563eb"/><text x="76" y="416" fill="#374151">Put collateral</text>
+<rect x="180" y="406" width="11" height="11" fill="#16a34a"/><text x="196" y="416" fill="#374151">Shares held</text>
+</svg>
